@@ -34,3 +34,6 @@ dialog input{width:100%;padding:8px;background:var(--bg);color:var(--text);borde
 #toast{position:fixed;bottom:20px;right:24px;background:var(--text);color:#111;padding:9px 14px;border-radius:4px;opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}
 #toast.show{opacity:1;transform:none}
 .set input[type=text]{width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px}
+select{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:7px 10px;max-width:60%}
+button:disabled{opacity:.45;cursor:default}
+.snap input[type=checkbox]{margin-right:6px}

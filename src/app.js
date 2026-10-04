@@ -80,6 +80,64 @@
     }, { recursive: false, delayMs: 1500 });
   }
 
+
+  /* ---------- repair: remove items from mods that are no longer installed ---------- */
+  var modsDir = localStorage.getItem('modsDir') || '', RS = { src: 'live' };
+  var normName = function (s) { return s.toLowerCase().replace(/\.(vmz|zip|pck|vmod|7z)$/, '').replace(/[^a-z0-9]/g, ''); };
+  var isTres = function (e) { return !e.isDirectory && /\.tres$/i.test(e.name); };
+  async function scanDir(dir) {
+    var have = (await fs.readDir(modsDir)).map(function (e) { return normName(e.name); }), mods = {};
+    for (var e of await fs.readDir(dir)) {
+      if (!isTres(e)) continue;
+      var t = Tres.parse(await fs.readTextFile(j(dir, e.name)));
+      t.dependencies().forEach(function (d) {
+        if (!d.mod) return;
+        var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, other: 0, files: {} });
+        if (d.type === 'Resource') m.items += t.usesOf(d.id); else m.other++;
+        m.files[e.name] = 1;
+      });
+    }
+    return Object.keys(mods).sort().map(function (k) {
+      var m = mods[k], n = normName(k); m.found = have.some(function (h) { return h === n || (n.length > 3 && h.indexOf(n) !== -1); }); return m;
+    });
+  }
+  async function snapFrom(src, tag) {
+    var n = new Date(), id = n.getFullYear() + pad(n.getMonth() + 1) + pad(n.getDate()) + '-' + pad(n.getHours()) + pad(n.getMinutes()) + pad(n.getSeconds());
+    var dir = j(bakDir, id), data = j(dir, 'data');
+    await copyDir(src, data, true);
+    var meta = { id: id, tag: tag, auto: false, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
+    await fs.writeTextFile(j(dir, 'snapshot.json'), JSON.stringify(meta));
+    return meta;
+  }
+  async function cleanTo(src, tag, chosen) {
+    var meta = await snapFrom(src, tag), data = j(j(bakDir, meta.id), 'data'), done = [], left = 0;
+    var mine = function (b) { return chosen.indexOf(Tres.modOf(b.attrs.path || '')) !== -1; };
+    for (var e of await fs.readDir(data)) {
+      if (!isTres(e)) continue;
+      var p = j(data, e.name), t = Tres.parse(await fs.readTextFile(p)), n = 0;
+      t.ext().filter(function (b) { return b.attrs.type === 'Resource' && mine(b); }).forEach(function (b) { n += t.removeItemsUsing(b.attrs.id).slots.length; });
+      left += t.ext().filter(mine).length;
+      if (!n) continue;
+      var bad = t.validate(); if (bad.length) throw new Error(e.name + ': ' + bad[0]);
+      await fs.writeTextFile(p, t.serialize()); done.push(e.name + ' (' + n + ')');
+    }
+    return { meta: meta, done: done, left: left };
+  }
+  async function renderRepair() {
+    var v = $('#view'), head = '<h1>Repair</h1><p class="sub">Finds items from mods that are no longer installed and removes them into a cleaned copy. Your live save is never changed.</p>';
+    if (!modsDir) { v.innerHTML = head + '<div class="empty">Choose the game\'s <b>mods</b> folder first.<br><br><button data-act="pickmods" class="pri">Choose mods folder</button></div>'; return; }
+    var l = await list(), srcDir = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), mods;
+    try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(e) + '<br><br><button data-act="pickmods" class="pri">Choose mods folder again</button></div>'; return; }
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var rows = mods.map(function (m) {
+      return '<label class="snap"><div><h4><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> ' + esc(m.name) + '<span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></h4>' +
+        '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' other reference' + (m.other === 1 ? '' : 's') + ' (not removable here)' : '') + '</div></div></label>';
+    }).join('');
+    v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' +
+      (rows || '<div class="empty">No items from mods were found in this save.</div>');
+    $('#rsrc').value = RS.src;
+  }
+
   /* ---------- views ---------- */
   async function renderSnapshots() {
     var ok = await fs.exists(saveDir), v = $('#view');
@@ -98,12 +156,13 @@
     var auto = localStorage.getItem('auto') !== '0';
     $('#view').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
       '<div class="set"><h4>Save folder</h4><p>' + esc(saveDir) + '</p><button data-act="pick">Change&hellip;</button> <button data-act="open-save">Show in Explorer</button></div>' +
+      '<div class="set"><h4>Game mods folder</h4><p>' + esc(modsDir || 'Not set') + '</p><button data-act="pickmods">Choose&hellip;</button></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       '<div class="set"><h4>Auto backup</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>';
   }
-  function render() { return (page === 'settings' ? renderSettings() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
+  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
 
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
@@ -117,12 +176,19 @@
       else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag, ok: 'Save' }); if (t === null) return; m.tag = t; await fs.writeTextFile(j(j(bakDir, id), 'snapshot.json'), JSON.stringify(m)); }
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
+      else if (act === 'pickmods') { var q = await T.dialog.open({ directory: true, defaultPath: modsDir || undefined, title: 'Choose the Road to Vostok mods folder' }); if (!q) return; modsDir = q; localStorage.setItem('modsDir', q); }
+      else if (act === 'clean') {
+        var chosen = Array.prototype.filter.call(document.querySelectorAll('input[data-mod]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mod; });
+        if (!chosen.length) { toast('Tick at least one mod to remove'); return; }
+        var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.join(', '), chosen);
+        await ask('Cleaned copy created', (r.done.length ? 'Removed items in: ' + r.done.join(', ') + '. ' : 'No item slots needed removing. ') + (r.left ? r.left + ' reference(s) to these mods remain (not item slots). ' : '') + 'Find it under Snapshots and restore it when the game is closed.', { ok: 'OK' });
+      }
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
       else if (act === 'open-bak') { await fs.mkdir(bakDir, { recursive: true }); return T.opener.revealItemInDir(bakDir); }
     } catch (e) { toast('Error: ' + e); }
     render();
   });
-  document.addEventListener('change', function (ev) { if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
+  document.addEventListener('change', function (ev) { if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
 
   /* ---------- start ---------- */
   (async function () {

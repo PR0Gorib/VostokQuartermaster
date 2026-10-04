@@ -5,6 +5,8 @@
   var j = function (a, b) { return a.replace(/[\\/]+$/, '') + SEP + b; };
   var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var fmtSize = function (n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; };
+  function skipList() { var v = localStorage.getItem('skip'); return (v === null ? 'logs, shader_cache, vulkan, d3d12' : v).split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean); }
+  var skipped = function (n) { return skipList().indexOf(n.toLowerCase()) !== -1; };
   var pad = function (n) { return String(n).padStart(2, '0'); };
 
   function toast(msg) { var t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(function () { t.classList.remove('show'); }, 2600); }
@@ -21,9 +23,10 @@
   }
 
   /* ---------- file helpers ---------- */
-  async function copyDir(s, d) {
+  async function copyDir(s, d, top) {
     await fs.mkdir(d, { recursive: true });
     for (var e of await fs.readDir(s)) {
+      if (top && skipped(e.name)) continue;
       if (e.isDirectory) await copyDir(j(s, e.name), j(d, e.name)); else await fs.copyFile(j(s, e.name), j(d, e.name));
     }
   }
@@ -47,7 +50,7 @@
     var n = new Date(), id = n.getFullYear() + pad(n.getMonth() + 1) + pad(n.getDate()) + '-' + pad(n.getHours()) + pad(n.getMinutes()) + pad(n.getSeconds());
     var dir = j(bakDir, id), data = j(dir, 'data');
     busyUntil = Date.now() + 6000;
-    await copyDir(saveDir, data);
+    await copyDir(saveDir, data, true);
     var meta = { id: id, tag: tag || '', auto: !!auto, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
     await fs.writeTextFile(j(dir, 'snapshot.json'), JSON.stringify(meta));
     if (auto) { var old = (await list()).filter(function (m) { return m.auto; }).slice(KEEP_AUTO); for (var m of old) await fs.remove(j(bakDir, m.id), { recursive: true }); }
@@ -57,7 +60,7 @@
     await snap('Before restore', true);
     var data = j(j(bakDir, id), 'data'), keep = new Set((await fs.readDir(data)).map(function (e) { return e.name; }));
     busyUntil = Date.now() + 8000;
-    for (var e of await fs.readDir(saveDir)) if (!keep.has(e.name)) await fs.remove(j(saveDir, e.name), { recursive: true });
+    for (var e of await fs.readDir(saveDir)) if (!keep.has(e.name) && !skipped(e.name)) await fs.remove(j(saveDir, e.name), { recursive: true });
     await copyDir(data, saveDir);
   }
 
@@ -96,6 +99,7 @@
     $('#view').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
       '<div class="set"><h4>Save folder</h4><p>' + esc(saveDir) + '</p><button data-act="pick">Change&hellip;</button> <button data-act="open-save">Show in Explorer</button></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
+      '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       '<div class="set"><h4>Auto backup</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>';
   }
@@ -118,7 +122,7 @@
     } catch (e) { toast('Error: ' + e); }
     render();
   });
-  document.addEventListener('change', function (ev) { if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
+  document.addEventListener('change', function (ev) { if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
 
   /* ---------- start ---------- */
   (async function () {

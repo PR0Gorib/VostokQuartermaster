@@ -5,7 +5,7 @@
   var j = function (a, b) { return a.replace(/[\\/]+$/, '') + SEP + b; };
   var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var fmtSize = function (n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; };
-  function skipList() { var v = localStorage.getItem('skip'); return (v === null ? 'logs, shader_cache, vulkan, d3d12' : v).split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean); }
+  function skipList() { var v = localStorage.getItem('skip'); return (v === null ? 'logs, shader_cache, vulkan, d3d12, modloader_hooks, vmz_mount_cache, mws_cache' : v).split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean); }
   var skipped = function (n) { return skipList().indexOf(n.toLowerCase()) !== -1; };
   var pad = function (n) { return String(n).padStart(2, '0'); };
 
@@ -67,7 +67,7 @@
   /* ---------- auto backup ---------- */
   async function startWatch() {
     if (unwatch) { unwatch(); unwatch = null; }
-    if (localStorage.getItem('auto') === '0' || !saveDir || !(await fs.exists(saveDir))) return;
+    if (localStorage.getItem('auto') !== '1' || !saveDir || !(await fs.exists(saveDir))) return;
     unwatch = await fs.watch(saveDir, function () {
       if (Date.now() < busyUntil) return;
       clearTimeout(timer);
@@ -89,11 +89,11 @@
     var have = (await fs.readDir(modsDir)).map(function (e) { return normName(e.name); }), mods = {};
     for (var e of await fs.readDir(dir)) {
       if (!isTres(e)) continue;
-      var t = Tres.parse(await fs.readTextFile(j(dir, e.name)));
+      var txt = await fs.readTextFile(j(dir, e.name)), t = Tres.parse(txt);
       t.dependencies().forEach(function (d) {
         if (!d.mod) return;
-        var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, other: 0, files: {} });
-        if (d.type === 'Resource') m.items += t.usesOf(d.id); else m.other++;
+        var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, stored: 0, other: 0, files: {} });
+        if (d.type === 'Resource') { m.items += t.usesOf(d.id); try { m.stored += Tres.parse(txt).removeItemsUsing(d.id).children.length; } catch (_) { /* count only */ } } else m.other++;
         m.files[e.name] = 1;
       });
     }
@@ -114,12 +114,12 @@
     var mine = function (b) { return chosen.indexOf(Tres.modOf(b.attrs.path || '')) !== -1; };
     for (var e of await fs.readDir(data)) {
       if (!isTres(e)) continue;
-      var p = j(data, e.name), t = Tres.parse(await fs.readTextFile(p)), n = 0;
-      t.ext().filter(function (b) { return b.attrs.type === 'Resource' && mine(b); }).forEach(function (b) { n += t.removeItemsUsing(b.attrs.id).slots.length; });
+      var p = j(data, e.name), t = Tres.parse(await fs.readTextFile(p)), n = 0, st = 0;
+      t.ext().filter(function (b) { return b.attrs.type === 'Resource' && mine(b); }).forEach(function (b) { var r = t.removeItemsUsing(b.attrs.id); n += r.slots.length; st += r.children.length; });
       left += t.ext().filter(mine).length;
       if (!n) continue;
       var bad = t.validate(); if (bad.length) throw new Error(e.name + ': ' + bad[0]);
-      await fs.writeTextFile(p, t.serialize()); done.push(e.name + ' (' + n + ')');
+      await fs.writeTextFile(p, t.serialize()); done.push(e.name + ' (' + n + (st ? ' + ' + st + ' stored inside' : '') + ')');
     }
     return { meta: meta, done: done, left: left };
   }
@@ -131,7 +131,7 @@
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var rows = mods.map(function (m) {
       return '<label class="snap"><div><h4><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> ' + esc(m.name) + '<span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></h4>' +
-        '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' other reference' + (m.other === 1 ? '' : 's') + ' (not removable here)' : '') + '</div></div></label>';
+        '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + (m.stored ? ' (+' + m.stored + ' stored inside)' : '') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' mod data reference' + (m.other === 1 ? '' : 's') + ' (the mod&rsquo;s own data, not items)' : '') + '</div></div></label>';
     }).join('');
     v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' +
       (rows || '<div class="empty">No items from mods were found in this save.</div>');
@@ -149,17 +149,18 @@
         '<div class="meta">' + new Date(m.created).toLocaleString() + ' &middot; ' + m.files + ' items &middot; ' + fmtSize(m.size) + '</div></div>' +
         '<div class="acts" data-id="' + m.id + '"><button data-act="restore" class="pri">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
     }).join('');
-    v.innerHTML = head + '<div class="bar"><button data-act="backup" class="pri">Back up now</button><span class="sp"></span><span class="meta">' + l.length + ' snapshot' + (l.length === 1 ? '' : 's') + '</span></div>' +
+    var autoN = l.filter(function (m) { return m.auto && m.tag !== 'Before restore'; }).length;
+    v.innerHTML = head + '<div class="bar"><button data-act="backup" class="pri">Back up now</button>' + (autoN ? '<button data-act="delauto" class="dng">Delete ' + autoN + ' automatic</button>' : '') + '<span class="sp"></span><span class="meta">' + l.length + ' snapshot' + (l.length === 1 ? '' : 's') + '</span></div>' +
       (rows || '<div class="empty">No snapshots yet. Back up now, or play and let auto backup do it.</div>');
   }
   async function renderSettings() {
-    var auto = localStorage.getItem('auto') !== '0';
+    var auto = localStorage.getItem('auto') === '1';
     $('#view').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
       '<div class="set"><h4>Save folder</h4><p>' + esc(saveDir) + '</p><button data-act="pick">Change&hellip;</button> <button data-act="open-save">Show in Explorer</button></div>' +
       '<div class="set"><h4>Game mods folder</h4><p>' + esc(modsDir || 'Not set') + '</p><button data-act="pickmods">Choose&hellip;</button></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
-      '<div class="set"><h4>Auto backup</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
+      '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>';
   }
   function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
@@ -176,6 +177,12 @@
       else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag, ok: 'Save' }); if (t === null) return; m.tag = t; await fs.writeTextFile(j(j(bakDir, id), 'snapshot.json'), JSON.stringify(m)); }
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
+      else if (act === 'delauto') {
+        var del = (await list()).filter(function (m) { return m.auto && m.tag !== 'Before restore'; }); if (!del.length) return;
+        if (!(await ask('Delete automatic snapshots?', del.length + ' automatic snapshot' + (del.length === 1 ? '' : 's') + ' will be deleted. Manual snapshots and "Before restore" safety copies are kept. This cannot be undone.', { ok: 'Delete' }))) return;
+        for (var d of del) await fs.remove(j(bakDir, d.id), { recursive: true });
+        toast(del.length + ' deleted');
+      }
       else if (act === 'pickmods') { var q = await T.dialog.open({ directory: true, defaultPath: modsDir || undefined, title: 'Choose the Road to Vostok mods folder' }); if (!q) return; modsDir = q; localStorage.setItem('modsDir', q); }
       else if (act === 'clean') {
         var chosen = Array.prototype.filter.call(document.querySelectorAll('input[data-mod]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mod; });

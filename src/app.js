@@ -83,19 +83,22 @@
 
 
   /* ---------- world info (day, season, difficulty, weather) ---------- */
-  // Fill these once the in-game values are confirmed, e.g. { 1: 'Standard' }. Until then the raw numbers are shown.
-  var WORLD = { difficulty: {}, season: {} };
+  // In-game values as stored in World.tres. Unknown numbers fall back to showing the raw value.
+  var WORLD = { difficulty: { 1: 'Standard', 2: 'Darkness', 3: 'Ironman' }, season: { 1: 'Summer', 2: 'Winter' } };
   async function worldInfo(dataDir) {
     try {
       var t = Tres.parse(await fs.readTextFile(j(dataDir, 'World.tres'))), m = t.main();
       var g = function (k) { var v = t.get(m, k); return v === undefined ? null : String(v).replace(/^"|"$/g, ''); };
-      return { day: g('day'), season: g('season'), difficulty: g('difficulty'), weather: g('weather') };
+      return { day: g('day'), time: g('time'), season: g('season'), difficulty: g('difficulty'), weather: g('weather') };
     } catch (_) { return null; }
   }
+  // time is stored as hours x 100 with a decimal fraction (2341.2 = 23.412 h = 23:24)
+  function fmtTime(t) { return pad(Math.floor(t / 100) % 24) + ':' + pad(Math.floor((t % 100) * 0.6)); }
   function fmtWorld(w) {
     if (!w) return '';
     var p = [];
     if (w.day !== null) p.push('Day ' + esc(w.day));
+    if (w.time !== null && !isNaN(parseFloat(w.time))) p.push(fmtTime(parseFloat(w.time)));
     if (w.season !== null) p.push(esc(WORLD.season[w.season] || 'Season ' + w.season));
     if (w.difficulty !== null) p.push(esc(WORLD.difficulty[w.difficulty] || 'Difficulty ' + w.difficulty));
     if (w.weather) p.push(esc(w.weather));
@@ -161,15 +164,74 @@
     $('#rsrc').value = RS.src;
   }
 
+
+  /* ---------- inventory (read-only) ---------- */
+  var IS = { src: 'live' };
+  var ids = function (s, fn) { var re = new RegExp(fn + '\\("([^"]+)"\\)', 'g'), o = [], x; while ((x = re.exec(s || ''))) o.push(x[1]); return o; };
+  var inner = function (s) { var x = /\(\[(.*)\]\)\s*$/.exec(s || ''); return x ? x[1] : ''; };
+  var extMap = function (t) { var o = {}; t.ext().forEach(function (b) { o[b.attrs.id] = b.attrs.path || ''; }); return o; };
+  function catOf(p) { var m = /^res:\/\/Items\/([^\/]+)\//.exec(p); return m ? m[1] : (Tres.modOf(p) || 'Other'); }
+  function slotInfo(t, ext, sid) {
+    var b = t.subById(sid); if (!b) return null;
+    var im = /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''), p = im ? (ext[im[1]] || '') : '';
+    var n = function (k) { var x = parseFloat(t.get(b, k)); return isNaN(x) ? 0 : x; };
+    return { name: p ? Tres.itemName(p) : 'Unknown item', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
+      att: ids(inner(t.get(b, 'nested')), 'ExtResource').map(function (i) { return Tres.itemName(ext[i] || ''); }), stored: ids(inner(t.get(b, 'storage')), 'SubResource').length };
+  }
+  function rowsHtml(list, sort) {
+    var g = {}, order = [];
+    list.forEach(function (s) { if (!s) return; var k = [s.name, s.cond, s.qty, s.att.join('+'), s.slot, s.stored].join('|'); if (!g[k]) { g[k] = { s: s, n: 0 }; order.push(k); } g[k].n++; });
+    if (sort) order.sort(function (a, b) { var x = g[a].s, y = g[b].s; return x.cat.localeCompare(y.cat) || x.name.localeCompare(y.name); });
+    return order.map(function (k) {
+      var s = g[k].s, n = g[k].n;
+      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+        (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td><td>' + s.cond + '%</td><td>' + (s.qty || '') + '</td></tr>';
+    }).join('');
+  }
+  var itemTable = function (rows) { return rows ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
+  function charHtml(t, m, ext) {
+    var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment'), inv = map('inventory');
+    return '<h2>Character</h2><h3>Equipped</h3>' + itemTable(rowsHtml(eq, false)) + '<h3>Carried &middot; ' + inv.length + ' items</h3>' + itemTable(rowsHtml(inv, true));
+  }
+  function shelterHtml(name, t, m, ext) {
+    var fur = ids(t.get(m, 'furnitures'), 'SubResource').map(function (id) {
+      var b = t.subById(id); return { name: String(t.get(b, 'name') || '').replace(/"/g, ''), items: ids(t.get(b, 'storage'), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }) };
+    });
+    var cont = fur.filter(function (f) { return f.items.length; }), stored = cont.reduce(function (n, f) { return n + f.items.length; }, 0);
+    var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0]) : null; }).filter(Boolean);
+    var det = function (title, items) { return '<details><summary>' + esc(title) + ' <span class="meta">&middot; ' + items.length + ' item' + (items.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(items, true)) + '</details>'; };
+    return '<h2>' + esc(name) + '</h2><p class="meta">' + fur.length + ' furniture pieces &middot; ' + stored + ' items in containers &middot; ' + loose.length + ' loose items</p>' +
+      cont.map(function (f) { return det(f.name, f.items); }).join('') + (loose.length ? det('Loose items', loose) : '');
+  }
+  async function renderInventory() {
+    var v = $('#view'), l = await list();
+    if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
+    var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var head = '<h1>Inventory</h1><p class="sub">What is equipped, carried and stored. Read-only: nothing here changes your save.</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items"></div>';
+    var chars = '', shelters = [];
+    try {
+      for (var e of await fs.readDir(dir)) {
+        if (!isTres(e)) continue;
+        var t = Tres.parse(await fs.readTextFile(j(dir, e.name))), m = t.main(); if (!m) continue;
+        if (t.get(m, 'equipment') !== undefined) chars += charHtml(t, m, extMap(t));
+        else if (t.get(m, 'furnitures') !== undefined) shelters.push({ n: e.name.replace(/\.tres$/i, ''), h: shelterHtml(e.name.replace(/\.tres$/i, ''), t, m, extMap(t)) });
+      }
+    } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#isrc').value = IS.src; return; }
+    shelters.sort(function (a, b) { return a.n.localeCompare(b.n); });
+    v.innerHTML = head + (chars || '<div class="empty">No character file found in this save.</div>') + shelters.map(function (s) { return s.h; }).join('');
+    $('#isrc').value = IS.src;
+  }
+
   /* ---------- views ---------- */
   async function renderSnapshots() {
     var ok = await fs.exists(saveDir), v = $('#view'), lw = ok ? await worldInfo(saveDir) : null;
-    var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) : '') + '</p>';
+    var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) + (lw.difficulty === '3' ? ' <span class="tag iron">Ironman</span>' : '') : '') + '</p>';
     if (!ok) { v.innerHTML = head + '<div class="empty">Save folder not found.<br><br><button data-act="pick" class="pri">Choose folder</button></div>'; return; }
     var l = await list();
     await Promise.all(l.map(async function (m) { m.world = await worldInfo(j(j(bakDir, m.id), 'data')); }));
     var rows = l.map(function (m) {
-      return '<div class="snap"><div><h4>' + esc(m.tag || 'Snapshot') + '<span class="tag ' + (m.auto ? '' : 'man') + '">' + (m.auto ? 'Auto' : 'Manual') + '</span></h4>' +
+      return '<div class="snap"><div><h4>' + esc(m.tag || 'Snapshot') + '<span class="tag ' + (m.auto ? '' : 'man') + '">' + (m.auto ? 'Auto' : 'Manual') + '</span>' + (m.world && m.world.difficulty === '3' ? '<span class="tag iron">Ironman</span>' : '') + '</h4>' +
         (m.world ? '<div class="meta wi">' + fmtWorld(m.world) + '</div>' : '') + '<div class="meta">' + new Date(m.created).toLocaleString() + ' &middot; ' + m.files + ' items &middot; ' + fmtSize(m.size) + '</div></div>' +
         '<div class="acts" data-id="' + m.id + '"><button data-act="restore" class="pri">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
     }).join('');
@@ -187,7 +249,7 @@
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>';
   }
-  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
+  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
 
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
@@ -220,7 +282,14 @@
     } catch (e) { toast('Error: ' + e); }
     render();
   });
-  document.addEventListener('change', function (ev) { if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
+  document.addEventListener('change', function (ev) { if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
+
+  document.addEventListener('input', function (ev) {
+    if (ev.target.id !== 'invq') return;
+    var q = ev.target.value.trim().toLowerCase();
+    document.querySelectorAll('#view tr[data-q]').forEach(function (r) { r.hidden = !!q && r.dataset.q.indexOf(q) === -1; });
+    document.querySelectorAll('#view details').forEach(function (d) { var any = !q || d.querySelector('tr[data-q]:not([hidden])'); d.hidden = !any; if (q && any) d.open = true; });
+  });
 
   /* ---------- start ---------- */
   (async function () {

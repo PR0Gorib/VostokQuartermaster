@@ -1,0 +1,44 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+node_modules/
+src-tauri/target/
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Tauri generated schemas (rebuilt on every build)
+src-tauri/gen/schemas/
+
+# Build outputs and release files
+*.exe
+*.msi
+/release/
+
+# Secrets and keys
+.env
+.env.*
+*.key
+*.pem

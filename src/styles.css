@@ -37,3 +37,4 @@ dialog input{width:100%;padding:8px;background:var(--bg);color:var(--text);borde
 select{font:inherit;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:7px 10px;max-width:60%}
 button:disabled{opacity:.45;cursor:default}
 .snap input[type=checkbox]{margin-right:6px}
+.wi{color:var(--text);margin:2px 0 3px}

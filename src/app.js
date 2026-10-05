@@ -81,6 +81,27 @@
   }
 
 
+
+  /* ---------- world info (day, season, difficulty, weather) ---------- */
+  // Fill these once the in-game values are confirmed, e.g. { 1: 'Standard' }. Until then the raw numbers are shown.
+  var WORLD = { difficulty: {}, season: {} };
+  async function worldInfo(dataDir) {
+    try {
+      var t = Tres.parse(await fs.readTextFile(j(dataDir, 'World.tres'))), m = t.main();
+      var g = function (k) { var v = t.get(m, k); return v === undefined ? null : String(v).replace(/^"|"$/g, ''); };
+      return { day: g('day'), season: g('season'), difficulty: g('difficulty'), weather: g('weather') };
+    } catch (_) { return null; }
+  }
+  function fmtWorld(w) {
+    if (!w) return '';
+    var p = [];
+    if (w.day !== null) p.push('Day ' + esc(w.day));
+    if (w.season !== null) p.push(esc(WORLD.season[w.season] || 'Season ' + w.season));
+    if (w.difficulty !== null) p.push(esc(WORLD.difficulty[w.difficulty] || 'Difficulty ' + w.difficulty));
+    if (w.weather) p.push(esc(w.weather));
+    return p.join(' &middot; ');
+  }
+
   /* ---------- repair: remove items from mods that are no longer installed ---------- */
   var modsDir = localStorage.getItem('modsDir') || '', RS = { src: 'live' };
   var normName = function (s) { return s.toLowerCase().replace(/\.(vmz|zip|pck|vmod|7z)$/, '').replace(/[^a-z0-9]/g, ''); };
@@ -126,8 +147,10 @@
   async function renderRepair() {
     var v = $('#view'), head = '<h1>Repair</h1><p class="sub">Finds items from mods that are no longer installed and removes them into a cleaned copy. Your live save is never changed.</p>';
     if (!modsDir) { v.innerHTML = head + '<div class="empty">Choose the game\'s <b>mods</b> folder first.<br><br><button data-act="pickmods" class="pri">Choose mods folder</button></div>'; return; }
-    var l = await list(), srcDir = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), mods;
-    try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(e) + '<br><br><button data-act="pickmods" class="pri">Choose mods folder again</button></div>'; return; }
+    var l = await list(), mods;
+    if (RS.src !== 'live' && !l.some(function (m) { return m.id === RS.src; })) RS.src = 'live';
+    var srcDir = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data');
+    try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(e) + '<br><br><button data-act="pickmods" class="pri">Choose mods folder again</button> <button data-act="srclive">Use current save folder</button></div>'; return; }
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var rows = mods.map(function (m) {
       return '<label class="snap"><div><h4><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> ' + esc(m.name) + '<span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></h4>' +
@@ -140,13 +163,14 @@
 
   /* ---------- views ---------- */
   async function renderSnapshots() {
-    var ok = await fs.exists(saveDir), v = $('#view');
-    var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + '</p>';
+    var ok = await fs.exists(saveDir), v = $('#view'), lw = ok ? await worldInfo(saveDir) : null;
+    var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) : '') + '</p>';
     if (!ok) { v.innerHTML = head + '<div class="empty">Save folder not found.<br><br><button data-act="pick" class="pri">Choose folder</button></div>'; return; }
     var l = await list();
+    await Promise.all(l.map(async function (m) { m.world = await worldInfo(j(j(bakDir, m.id), 'data')); }));
     var rows = l.map(function (m) {
       return '<div class="snap"><div><h4>' + esc(m.tag || 'Snapshot') + '<span class="tag ' + (m.auto ? '' : 'man') + '">' + (m.auto ? 'Auto' : 'Manual') + '</span></h4>' +
-        '<div class="meta">' + new Date(m.created).toLocaleString() + ' &middot; ' + m.files + ' items &middot; ' + fmtSize(m.size) + '</div></div>' +
+        (m.world ? '<div class="meta wi">' + fmtWorld(m.world) + '</div>' : '') + '<div class="meta">' + new Date(m.created).toLocaleString() + ' &middot; ' + m.files + ' items &middot; ' + fmtSize(m.size) + '</div></div>' +
         '<div class="acts" data-id="' + m.id + '"><button data-act="restore" class="pri">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
     }).join('');
     var autoN = l.filter(function (m) { return m.auto && m.tag !== 'Before restore'; }).length;
@@ -175,7 +199,8 @@
       if (act === 'backup') { var tag = await ask('Back up now', 'Add a tag to find it later (optional).', { input: true, ok: 'Back up' }); if (tag === null) return; await snap(tag, false); toast('Snapshot saved'); }
       else if (act === 'restore') { if (!(await ask('Restore this snapshot?', 'Close Road to Vostok first. Your current save is backed up automatically, then replaced with this snapshot.', { ok: 'Restore' }))) return; await restore(id); toast('Snapshot restored'); }
       else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag, ok: 'Save' }); if (t === null) return; m.tag = t; await fs.writeTextFile(j(j(bakDir, id), 'snapshot.json'), JSON.stringify(m)); }
-      else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); }
+      else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; }
+      else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
       else if (act === 'delauto') {
         var del = (await list()).filter(function (m) { return m.auto && m.tag !== 'Before restore'; }); if (!del.length) return;

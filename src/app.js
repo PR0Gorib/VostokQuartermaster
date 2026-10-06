@@ -223,6 +223,36 @@
     $('#isrc').value = IS.src;
   }
 
+
+  /* ---------- traders (read-only) ---------- */
+  var TS = { src: 'live' };
+  // task totals from the wiki (roadtovostok.wiki/traders); unknown traders just show the completed count
+  var TRADERS = { generalist: ['Generalist', 10], doctor: ['Doctor', 10], gunsmith: ['Gunsmith', 10], driver: ['Driver', 1], hunter: ['Hunter', 0], grandma: ['Grandma', null] };
+  function tradersHtml(t) {
+    var m = t.main(), ext = extMap(t), notes = {};
+    ids(inner(t.get(m, 'taskNotes')), 'ExtResource').forEach(function (i) {
+      var p = ext[i] || '', mm = /Traders\/([^\/]+)\//.exec(p), k = mm ? mm[1].toLowerCase() : 'other';
+      (notes[k] = notes[k] || []).push(p.split('/').pop().replace(/\.tres$/i, '').replace(/^\d+_/, '').replace(/_/g, ' '));
+    });
+    return t.keys(m).filter(function (k) { return k !== 'script' && k !== 'taskNotes'; }).map(function (k) {
+      var done = (inner(t.get(m, k)).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (s) { return s.slice(1, -1); });
+      var meta = TRADERS[k] || [k.charAt(0).toUpperCase() + k.slice(1), null], act = notes[k] || [];
+      return '<div class="snap"><div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span></h4>' +
+        (done.length ? '<div class="meta wi">' + done.map(esc).join(' &middot; ') + '</div>' : '<div class="meta">No tasks completed yet.</div>') +
+        (act.length ? '<div class="meta">In progress: ' + act.map(esc).join(', ') + '</div>' : '') + '</div></div>';
+    }).join('');
+  }
+  async function renderTraders() {
+    var v = $('#view'), l = await list();
+    if (TS.src !== 'live' && !l.some(function (m) { return m.id === TS.src; })) TS.src = 'live';
+    var dir = TS.src === 'live' ? saveDir : j(j(bakDir, TS.src), 'data'), f = j(dir, 'Traders.tres');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var head = '<h1>Traders</h1><p class="sub">Completed and in-progress tasks. Read-only: nothing here changes your save.</p><div class="bar"><select id="tsrc">' + opts + '</select></div>';
+    try { v.innerHTML = head + ((await fs.exists(f)) ? tradersHtml(Tres.parse(await fs.readTextFile(f))) : '<div class="empty">No Traders.tres in this save.</div>'); }
+    catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; }
+    $('#tsrc').value = TS.src;
+  }
+
   /* ---------- views ---------- */
   async function renderSnapshots() {
     var ok = await fs.exists(saveDir), v = $('#view'), lw = ok ? await worldInfo(saveDir) : null;
@@ -249,7 +279,7 @@
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>';
   }
-  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
+  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'traders' ? renderTraders() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
 
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
@@ -282,7 +312,7 @@
     } catch (e) { toast('Error: ' + e); }
     render();
   });
-  document.addEventListener('change', function (ev) { if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
+  document.addEventListener('change', function (ev) { if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
 
   document.addEventListener('input', function (ev) {
     if (ev.target.id !== 'invq') return;

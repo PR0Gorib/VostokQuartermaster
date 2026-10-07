@@ -153,6 +153,7 @@
     var l = await list(), mods;
     if (RS.src !== 'live' && !l.some(function (m) { return m.id === RS.src; })) RS.src = 'live';
     var srcDir = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data');
+    if (!(await fs.exists(srcDir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; return; }
     try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(e) + '<br><br><button data-act="pickmods" class="pri">Choose mods folder again</button> <button data-act="srclive">Use current save folder</button></div>'; return; }
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var rows = mods.map(function (m) {
@@ -209,6 +210,7 @@
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var head = '<h1>Inventory</h1><p class="sub">What is equipped, carried and stored. Read-only: nothing here changes your save.</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items"></div>';
+    if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#isrc').value = IS.src; return; }
     var chars = '', shelters = [];
     try {
       for (var e of await fs.readDir(dir)) {
@@ -227,17 +229,17 @@
   /* ---------- traders (read-only) ---------- */
   var TS = { src: 'live' };
   // task totals from the wiki (roadtovostok.wiki/traders); unknown traders just show the completed count
-  var TRADERS = { generalist: ['Generalist', 10], doctor: ['Doctor', 10], gunsmith: ['Gunsmith', 10], driver: ['Driver', 1], hunter: ['Hunter', 0], grandma: ['Grandma', null] };
+  var TRADERS = { generalist: ['Generalist', 10, 100], doctor: ['Doctor', 10, 200], gunsmith: ['Gunsmith', 10, 300], driver: ['Driver', 1], hunter: ['Hunter', 0] };
   function tradersHtml(t) {
     var m = t.main(), ext = extMap(t), notes = {};
     ids(inner(t.get(m, 'taskNotes')), 'ExtResource').forEach(function (i) {
       var p = ext[i] || '', mm = /Traders\/([^\/]+)\//.exec(p), k = mm ? mm[1].toLowerCase() : 'other';
       (notes[k] = notes[k] || []).push(p.split('/').pop().replace(/\.tres$/i, '').replace(/^\d+_/, '').replace(/_/g, ' '));
     });
-    return t.keys(m).filter(function (k) { return k !== 'script' && k !== 'taskNotes'; }).map(function (k) {
+    return t.keys(m).filter(function (k) { return k !== 'script' && k !== 'taskNotes' && k !== 'grandma'; }).map(function (k) {
       var done = (inner(t.get(m, k)).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (s) { return s.slice(1, -1); });
       var meta = TRADERS[k] || [k.charAt(0).toUpperCase() + k.slice(1), null], act = notes[k] || [];
-      return '<div class="snap"><div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span></h4>' +
+      return '<div class="snap"><div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span>' + (meta[2] ? '<span class="tag" title="Estimated: base tax x (1 - done / 10). Matches in-game values seen so far.">Tax ~' + Math.round(meta[2] * Math.max(0, 1 - done.length / meta[1])) + '% (est.)</span>' : '') + '</h4>' +
         (done.length ? '<div class="meta wi">' + done.map(esc).join(' &middot; ') + '</div>' : '<div class="meta">No tasks completed yet.</div>') +
         (act.length ? '<div class="meta">In progress: ' + act.map(esc).join(', ') + '</div>' : '') + '</div></div>';
     }).join('');

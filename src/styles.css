@@ -45,3 +45,8 @@ table.itm{width:100%;border-collapse:collapse;margin:6px 0 14px}
 .itm td{padding:6px 8px;border-bottom:1px solid #1f2b29;vertical-align:top}.itm td:nth-child(n+3){white-space:nowrap}
 details{background:var(--panel);border:1px solid var(--line);border-radius:6px;margin:8px 0;padding:8px 12px}summary{cursor:pointer}
 .bar input[type=search]{padding:7px 10px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:4px;min-width:220px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:8px 0 6px}
+.fld{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:9px 11px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--mut)}
+.fld input[type=number],.fld input[type=time],.fld select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;max-width:none}
+.fld.chk{flex-direction:row;align-items:center;gap:8px;color:var(--text);cursor:pointer}
+dialog p{white-space:pre-line;max-height:260px;overflow:auto}

@@ -253,6 +253,83 @@
     $('#tsrc').value = TS.src;
   }
 
+
+  /* ---------- edit (character + world, written to a new snapshot) ---------- */
+  var ES = { src: 'live' };
+  var METERS = [['health', 'Health'], ['energy', 'Energy'], ['hydration', 'Hydration'], ['temperature', 'Temperature'], ['mental', 'Mental'], ['reputation', 'Reputation'], ['cat', 'Cat health'], ['bodyStamina', 'Body stamina'], ['armStamina', 'Arm stamina']];
+  var CONDS = [['overweight', 'Overweight'], ['starvation', 'Starvation'], ['dehydration', 'Dehydration'], ['bleeding', 'Bleeding'], ['fracture', 'Fracture'], ['burn', 'Burn'], ['poisoning', 'Poisoning'], ['frostbite', 'Frostbite'], ['insanity', 'Insanity'], ['rupture', 'Rupture'], ['headshot', 'Headshot'], ['catFound', 'Cat found'], ['catDead', 'Cat dead']];
+  var HEAL_M = ['health', 'energy', 'hydration', 'temperature', 'mental', 'bodyStamina', 'armStamina'];
+  var HEAL_C = ['overweight', 'starvation', 'dehydration', 'bleeding', 'fracture', 'burn', 'poisoning', 'frostbite', 'insanity', 'rupture', 'headshot'];
+  var WEATHER = ['Neutral', 'Rain', 'Storm', 'Overcast', 'Wind', 'Fog', 'Aurora'];
+  function rawOf(e) {
+    if (e.t === 'bool') return e.v;
+    if (e.t === 'str') return '"' + e.v.replace(/["\\]/g, '') + '"';
+    var f = function (n) { return Number.isInteger(n) ? n.toFixed(1) : String(+n.toFixed(4)); };
+    if (e.t === 'num') { var n = parseFloat(e.v); if (isNaN(n)) throw new Error(e.label + ' is not a number'); return f(Math.min(100, Math.max(0, n))); }
+    if (e.t === 'int') { var i = parseInt(e.v, 10); if (isNaN(i) || i < 1) throw new Error(e.label + ' must be 1 or more'); return String(i); }
+    if (e.t === 'time') { var p = String(e.v).split(':'), h = parseInt(p[0], 10), mi = parseInt(p[1], 10); if (isNaN(h) || isNaN(mi)) throw new Error('Time is not valid'); return f(h * 100 + mi * 100 / 60); }
+    throw new Error('Unknown field type');
+  }
+  function collectEdits() {
+    var out = [];
+    document.querySelectorAll('#view [data-k]').forEach(function (el) {
+      var chk = el.type === 'checkbox', v = chk ? String(el.checked) : el.value;
+      if (v === el.dataset.init) return;
+      var to = chk ? (el.checked ? 'on' : 'off') : el.tagName === 'SELECT' ? el.options[el.selectedIndex].text : v;
+      var from = chk ? (el.dataset.init === 'true' ? 'on' : 'off') : (el.dataset.initText || el.dataset.init);
+      out.push({ f: el.dataset.f, k: el.dataset.k, t: el.dataset.t, v: v, label: el.dataset.label, from: from, to: to });
+    });
+    return out;
+  }
+  async function makeEdited(src, edits) {
+    var meta = await snapFrom(src, 'Edited: ' + edits.length + ' change' + (edits.length === 1 ? '' : 's')), data = j(j(bakDir, meta.id), 'data');
+    for (var f of ['Character', 'World']) {
+      var es = edits.filter(function (e) { return e.f === f; }); if (!es.length) continue;
+      var p = j(data, f + '.tres'), t = Tres.parse(await fs.readTextFile(p)), m = t.main();
+      es.forEach(function (e) { t.set(m, e.k, e.raw); });
+      await fs.writeTextFile(p, t.serialize());
+    }
+    return meta;
+  }
+  async function renderEdit() {
+    var v = $('#view'), l = await list();
+    if (ES.src !== 'live' && !l.some(function (m) { return m.id === ES.src; })) ES.src = 'live';
+    var dir = ES.src === 'live' ? saveDir : j(j(bakDir, ES.src), 'data');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var head = '<h1>Edit</h1><p class="sub">Change values, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.</p>' +
+      '<div class="bar"><select id="esrc">' + opts + '</select><span class="sp"></span><button data-act="heal">Heal all</button><button data-act="mkedit" class="pri">Create edited copy</button></div>';
+    var read = async function (n) { var p = j(dir, n + '.tres'); return (await fs.exists(p)) ? Tres.parse(await fs.readTextFile(p)) : null; };
+    var ch, wo;
+    try { ch = await read('Character'); wo = await read('World'); } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#esrc').value = ES.src; return; }
+    var gv = function (t, k) { var x = t.get(t.main(), k); return x === undefined ? null : String(x).replace(/^"|"$/g, ''); };
+    var attrs = function (f, k, ty, label, init, extra) { return ' data-f="' + f + '" data-k="' + k + '" data-t="' + ty + '" data-label="' + esc(label) + '" data-init="' + esc(init) + '"' + (extra || ''); };
+    var html = head;
+    if (ch) {
+      html += '<h2>Character</h2><div class="fgrid">' + METERS.filter(function (x) { return gv(ch, x[0]) !== null; }).map(function (x) {
+        var init = String(+parseFloat(gv(ch, x[0])).toFixed(2));
+        return '<label class="fld">' + esc(x[1]) + '<input type="number" min="0" max="100" step="1" value="' + init + '"' + attrs('Character', x[0], 'num', x[1], init) + '></label>';
+      }).join('') + '</div><h3>Conditions</h3><div class="fgrid">' + CONDS.filter(function (x) { return gv(ch, x[0]) !== null; }).map(function (x) {
+        var on = gv(ch, x[0]) === 'true';
+        return '<label class="fld chk"><input type="checkbox"' + (on ? ' checked' : '') + attrs('Character', x[0], 'bool', x[1], String(on)) + '> ' + esc(x[1]) + '</label>';
+      }).join('') + '</div>';
+    } else html += '<div class="empty">No Character.tres in this save.</div>';
+    if (wo) {
+      var sel = function (k, label, pairs, cur) {
+        if (!pairs.some(function (p) { return p[0] === cur; })) pairs = pairs.concat([[cur, cur]]);
+        var txt = (pairs.filter(function (p) { return p[0] === cur; })[0] || [0, cur])[1];
+        return '<label class="fld">' + esc(label) + '<select' + attrs('World', k, k === 'weather' ? 'str' : 'int', label, cur, ' data-init-text="' + esc(txt) + '"') + '>' + pairs.map(function (p) { return '<option value="' + esc(p[0]) + '"' + (p[0] === cur ? ' selected' : '') + '>' + esc(p[1]) + '</option>'; }).join('') + '</select></label>';
+      };
+      var day = gv(wo, 'day'), tm = gv(wo, 'time'), tinit = tm !== null && !isNaN(parseFloat(tm)) ? fmtTime(parseFloat(tm)) : null;
+      html += '<h2>World</h2><div class="fgrid">' +
+        (day !== null ? '<label class="fld">Day<input type="number" min="1" step="1" value="' + esc(day) + '"' + attrs('World', 'day', 'int', 'Day', day) + '></label>' : '') +
+        (tinit ? '<label class="fld">Time of day<input type="time" value="' + tinit + '"' + attrs('World', 'time', 'time', 'Time', tinit) + '></label>' : '') +
+        (gv(wo, 'season') !== null ? sel('season', 'Season', [['1', 'Summer'], ['2', 'Winter']], gv(wo, 'season')) : '') +
+        (gv(wo, 'difficulty') !== null ? sel('difficulty', 'Difficulty', [['1', 'Standard'], ['2', 'Darkness'], ['3', 'Ironman']], gv(wo, 'difficulty')) : '') +
+        (gv(wo, 'weather') !== null ? sel('weather', 'Weather', WEATHER.map(function (w) { return [w, w]; }), gv(wo, 'weather')) : '') + '</div>';
+    } else html += '<div class="empty">No World.tres in this save.</div>';
+    v.innerHTML = html; $('#esrc').value = ES.src;
+  }
+
   /* ---------- views ---------- */
   async function renderSnapshots() {
     var ok = await fs.exists(saveDir), v = $('#view'), lw = ok ? await worldInfo(saveDir) : null;
@@ -279,7 +356,7 @@
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>';
   }
-  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'traders' ? renderTraders() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
+  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'traders' ? renderTraders() : page === 'edit' ? renderEdit() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
 
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
@@ -294,6 +371,18 @@
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; }
       else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
+      else if (act === 'heal') {
+        HEAL_M.forEach(function (k) { var el = document.querySelector('[data-f="Character"][data-k="' + k + '"]'); if (el) el.value = '100'; });
+        HEAL_C.forEach(function (k) { var el = document.querySelector('[data-f="Character"][data-k="' + k + '"]'); if (el) el.checked = false; });
+        toast('Meters set to 100 and conditions cleared. Review, then create the copy.'); return;
+      }
+      else if (act === 'mkedit') {
+        var edits = collectEdits(); if (!edits.length) { toast('No changes to apply'); return; }
+        edits.forEach(function (e) { e.raw = rawOf(e); });
+        if (!(await ask('Create edited copy?', edits.map(function (e) { return e.label + ': ' + e.from + ' \u2192 ' + e.to; }).join('\n'), { ok: 'Create' }))) return;
+        await makeEdited(ES.src === 'live' ? saveDir : j(j(bakDir, ES.src), 'data'), edits);
+        await ask('Edited copy created', 'Find it under Snapshots (tagged "Edited") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
+      }
       else if (act === 'delauto') {
         var del = (await list()).filter(function (m) { return m.auto && m.tag !== 'Before restore'; }); if (!del.length) return;
         if (!(await ask('Delete automatic snapshots?', del.length + ' automatic snapshot' + (del.length === 1 ? '' : 's') + ' will be deleted. Manual snapshots and "Before restore" safety copies are kept. This cannot be undone.', { ok: 'Delete' }))) return;
@@ -309,10 +398,10 @@
       }
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
       else if (act === 'open-bak') { await fs.mkdir(bakDir, { recursive: true }); return T.opener.revealItemInDir(bakDir); }
-    } catch (e) { toast('Error: ' + e); }
+    } catch (e) { toast('Error: ' + e); if (act === 'mkedit') return; }
     render();
   });
-  document.addEventListener('change', function (ev) { if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
+  document.addEventListener('change', function (ev) { if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
 
   document.addEventListener('input', function (ev) {
     if (ev.target.id !== 'invq') return;

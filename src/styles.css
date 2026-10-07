@@ -50,3 +50,4 @@ details{background:var(--panel);border:1px solid var(--line);border-radius:6px;m
 .fld input[type=number],.fld input[type=time],.fld select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;max-width:none}
 .fld.chk{flex-direction:row;align-items:center;gap:8px;color:var(--text);cursor:pointer}
 dialog p{white-space:pre-line;max-height:260px;overflow:auto}
+.ico{height:32px;width:auto;max-width:96px;object-fit:contain;vertical-align:middle;margin-right:8px}

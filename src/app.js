@@ -166,6 +166,50 @@
   }
 
 
+  /* ---------- item icons (read from the installed game on demand; nothing is copied or stored) ---------- */
+  var gameDir = localStorage.getItem('gameDir') || '', IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null };
+  function pckReader(file, size) {
+    var fh = null, q = Promise.resolve();
+    var rd = async function (pos, len) {
+      if (!fh) fh = await fs.open(file, { read: true });
+      await fh.seek(pos, T.fs.SeekMode.Start);
+      var buf = new Uint8Array(len), got = 0;
+      while (got < len) { var n = await fh.read(buf.subarray(got)); if (!n) break; got += n; }
+      return buf.subarray(0, got);
+    };
+    return { size: size, read: function (pos, len) { var r = q.then(function () { return rd(pos, len); }); q = r.catch(function () {}); return r; }, close: function () { return fh ? fh.close() : null; } };
+  }
+  async function iconPack() {
+    if (IC.pack) return IC.pack;
+    if (IC.busy) return IC.busy;
+    IC.busy = (async function () {
+      try {
+        var f = (await fs.readDir(gameDir)).filter(function (e) { return !e.isDirectory && /\.pck$/i.test(e.name); })[0];
+        if (!f) throw new Error('No .pck file found in the game folder');
+        var p = j(gameDir, f.name), rdr = pckReader(p, (await fs.stat(p)).size);
+        IC.pack = await Pck.open(rdr); IC.idx = Pck.iconIndex(IC.pack); IC.close = rdr.close;
+        return IC.pack;
+      } finally { IC.busy = null; }
+    })();
+    return IC.busy;
+  }
+  function iconReset() { try { if (IC.close) IC.close(); } catch (e) {} IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null }; }
+  function toUrl(tex) { var c = document.createElement('canvas'); c.width = tex.width; c.height = tex.height; c.getContext('2d').putImageData(new ImageData(tex.rgba, tex.width, tex.height), 0, 0); return c.toDataURL('image/png'); }
+  async function fillIcons() {
+    var imgs = Array.prototype.slice.call(document.querySelectorAll('#view img[data-ic]'));
+    if (!imgs.length || !gameDir || IC.fail) return;
+    try { await iconPack(); } catch (e) { IC.fail = String(e && e.message || e); return; }
+    for (var im of imgs) {
+      var n = im.dataset.ic;
+      if (!(n in IC.url)) {
+        var p = Pck.iconFor(IC.idx, n);
+        try { IC.url[n] = p ? toUrl(Pck.decodeCtex(await IC.pack.read(p))) : ''; } catch (e) { IC.url[n] = ''; }
+      }
+      if (IC.url[n]) { im.src = IC.url[n]; im.hidden = false; }
+    }
+  }
+  function iconHint() { return gameDir ? (IC.fail ? '<p class="meta bad">Could not read item icons: ' + esc(IC.fail) + ' (see Settings, Game folder)</p>' : '') : '<p class="meta">Tip: choose the game folder in Settings to show item icons.</p>'; }
+
   /* ---------- inventory (read-only) ---------- */
   var IS = { src: 'live' };
   var ids = function (s, fn) { var re = new RegExp(fn + '\\("([^"]+)"\\)', 'g'), o = [], x; while ((x = re.exec(s || ''))) o.push(x[1]); return o; };
@@ -176,7 +220,7 @@
     var b = t.subById(sid); if (!b) return null;
     var im = /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''), p = im ? (ext[im[1]] || '') : '';
     var n = function (k) { var x = parseFloat(t.get(b, k)); return isNaN(x) ? 0 : x; };
-    return { name: p ? Tres.itemName(p) : 'Unknown item', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
+    return { name: p ? Tres.itemName(p) : 'Unknown item', file: p ? p.split('/').pop().replace(/\.tres$/i, '') : '', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
       att: ids(inner(t.get(b, 'nested')), 'ExtResource').map(function (i) { return Tres.itemName(ext[i] || ''); }), stored: ids(inner(t.get(b, 'storage')), 'SubResource').length };
   }
   function rowsHtml(list, sort) {
@@ -185,7 +229,7 @@
     if (sort) order.sort(function (a, b) { var x = g[a].s, y = g[b].s; return x.cat.localeCompare(y.cat) || x.name.localeCompare(y.name); });
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n;
-      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + (s.file ? '<img class="ico" data-ic="' + esc(s.file) + '" alt="" hidden>' : '') + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td><td>' + s.cond + '%</td><td>' + (s.qty || '') + '</td></tr>';
     }).join('');
   }
@@ -221,8 +265,9 @@
       }
     } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#isrc').value = IS.src; return; }
     shelters.sort(function (a, b) { return a.n.localeCompare(b.n); });
-    v.innerHTML = head + (chars || '<div class="empty">No character file found in this save.</div>') + shelters.map(function (s) { return s.h; }).join('');
+    v.innerHTML = head + iconHint() + (chars || '<div class="empty">No character file found in this save.</div>') + shelters.map(function (s) { return s.h; }).join('');
     $('#isrc').value = IS.src;
+    fillIcons().then(function () { if (IC.fail && page === 'inventory') { var h = $('#view .sub'); if (h && !$('#view .bad')) h.insertAdjacentHTML('afterend', iconHint()); } });
   }
 
 
@@ -353,6 +398,7 @@
     $('#view').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
       '<div class="set"><h4>Save folder</h4><p>' + esc(saveDir) + '</p><button data-act="pick">Change&hellip;</button> <button data-act="open-save">Show in Explorer</button></div>' +
       '<div class="set"><h4>Game mods folder</h4><p>' + esc(modsDir || 'Not set') + '</p><button data-act="pickmods">Choose&hellip;</button></div>' +
+      '<div class="set"><h4>Game folder (for item icons)</h4><p>' + esc(gameDir || 'Not set') + '</p><button data-act="pickgame">Choose&hellip;</button><p style="margin:10px 0 0">Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
@@ -391,6 +437,7 @@
         for (var d of del) await fs.remove(j(bakDir, d.id), { recursive: true });
         toast(del.length + ' deleted');
       }
+      else if (act === 'pickgame') { var g = await T.dialog.open({ directory: true, defaultPath: gameDir || (modsDir ? modsDir.replace(/[\\/][^\\/]*$/, '') : undefined), title: 'Choose the Road to Vostok game folder' }); if (!g) return; gameDir = g; localStorage.setItem('gameDir', g); iconReset(); }
       else if (act === 'pickmods') { var q = await T.dialog.open({ directory: true, defaultPath: modsDir || undefined, title: 'Choose the Road to Vostok mods folder' }); if (!q) return; modsDir = q; localStorage.setItem('modsDir', q); }
       else if (act === 'clean') {
         var chosen = Array.prototype.filter.call(document.querySelectorAll('input[data-mod]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mod; });

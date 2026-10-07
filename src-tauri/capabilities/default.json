@@ -31,7 +31,9 @@
         { "path": "$DATA/Road to Vostok" },
         { "path": "$DATA/Road to Vostok/**" },
         { "path": "$APPDATA" },
-        { "path": "$APPDATA/**" }
+        { "path": "$APPDATA/**" },
+        { "path": "C:/Program Files (x86)/Steam/steamapps/common/Road to Vostok" },
+        { "path": "C:/Program Files (x86)/Steam/steamapps/common/Road to Vostok/**" }
       ]
     }
   ]

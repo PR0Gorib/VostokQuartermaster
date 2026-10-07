@@ -106,7 +106,7 @@
   }
 
   /* ---------- repair: remove items from mods that are no longer installed ---------- */
-  var modsDir = localStorage.getItem('modsDir') || '', RS = { src: 'live' };
+  var modsDir = '', RS = { src: 'live' };
   var normName = function (s) { return s.toLowerCase().replace(/\.(vmz|zip|pck|vmod|7z)$/, '').replace(/[^a-z0-9]/g, ''); };
   var isTres = function (e) { return !e.isDirectory && /\.tres$/i.test(e.name); };
   async function scanDir(dir) {
@@ -149,12 +149,12 @@
   }
   async function renderRepair() {
     var v = $('#view'), head = '<h1>Repair</h1><p class="sub">Finds items from mods that are no longer installed and removes them into a cleaned copy. Your live save is never changed.</p>';
-    if (!modsDir) { v.innerHTML = head + '<div class="empty">Choose the game\'s <b>mods</b> folder first.<br><br><button data-act="pickmods" class="pri">Choose mods folder</button></div>'; return; }
+    if (!modsDir) { v.innerHTML = head + '<div class="empty">Choose the <b>game folder</b> first (it contains the <b>mods</b> folder).<br><br><button data-act="pickgame" class="pri">Choose game folder</button></div>'; return; }
     var l = await list(), mods;
     if (RS.src !== 'live' && !l.some(function (m) { return m.id === RS.src; })) RS.src = 'live';
     var srcDir = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data');
     if (!(await fs.exists(srcDir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; return; }
-    try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(e) + '<br><br><button data-act="pickmods" class="pri">Choose mods folder again</button> <button data-act="srclive">Use current save folder</button></div>'; return; }
+    try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(e) + '<br><br><button data-act="pickgame" class="pri">Choose game folder again</button> <button data-act="srclive">Use current save folder</button></div>'; return; }
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var rows = mods.map(function (m) {
       return '<label class="snap"><div><h4><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> ' + esc(m.name) + '<span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></h4>' +
@@ -167,7 +167,9 @@
 
 
   /* ---------- item icons (read from the installed game on demand; nothing is copied or stored) ---------- */
-  var gameDir = localStorage.getItem('gameDir') || '', IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null };
+  var STEAM_DEFAULT = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok', GD_AUTO = false, gameDir = '', IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null };
+  // one folder for everything: the mods folder is the "mods" folder inside the game folder
+  function setGame(dir) { gameDir = dir || ''; modsDir = gameDir ? j(gameDir, 'mods') : ''; }
   function pckReader(file, size) {
     var fh = null, q = Promise.resolve();
     var rd = async function (pos, len) {
@@ -205,9 +207,33 @@
         var p = Pck.iconFor(IC.idx, n);
         try { IC.url[n] = p ? toUrl(Pck.decodeCtex(await IC.pack.read(p))) : ''; } catch (e) { IC.url[n] = ''; }
       }
-      if (IC.url[n]) { im.src = IC.url[n]; im.hidden = false; }
+      if (IC.url[n]) { im.src = IC.url[n]; im.hidden = false; var g = im.parentNode.querySelector('.gl'); if (g) g.hidden = true; }
     }
   }
+  var GLYPH = {
+    weapons: '<path d="M2 10.5h12.5l1-1.5h4l1 1.5H22v2.5h-5l-1.2 1.2h-3L11.5 19H8.5l1.2-4.8H6.6L4.8 17H2.6l1.3-3.6L2 13z"/>',
+    ammo: '<path d="M12 2.5c2 1.8 3 3.8 3 6.2V19H9V8.7c0-2.4 1-4.4 3-6.2z"/><path d="M9 15.5h6M9 21.5h6"/>',
+    attachments: '<circle cx="12" cy="12" r="5.5"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/>',
+    knives: '<path d="M20.5 3.5c-6.5.8-10.5 4.7-12 11.2l2.8 2.8c6.5-1.5 10.4-5.5 9.2-14z"/><path d="M8.5 15.5L4 20"/>',
+    grenades: '<circle cx="12" cy="14.5" r="6"/><path d="M10 8.5V5.5h4v3M14 5.5l3.5-2"/>',
+    armor: '<path d="M12 3l7.5 3v6c0 4.5-3.2 7.5-7.5 9-4.3-1.5-7.5-4.5-7.5-9V6z"/>',
+    helmets: '<path d="M4.5 15a7.5 7.5 0 0115 0z"/><path d="M3 15h18v2.5H3z"/>',
+    clothing: '<path d="M8.5 4L3 7l2 4 2.5-1V20h9V10l2.5 1 2-4-5.5-3c-.6 1.6-2 2.5-3.5 2.5S9.1 5.6 8.5 4z"/>',
+    backpacks: '<path d="M9 7V5.5a3 3 0 016 0V7"/><rect x="5" y="7" width="14" height="14" rx="3"/><path d="M9 14h6v4H9z"/>',
+    rigs: '<path d="M8.5 3.5L5 6v14.5h5.2V15h3.6v5.5H19V6l-3.5-2.5c-.6 1.8-2 2.7-3.5 2.7s-2.9-.9-3.5-2.7z"/>',
+    belts: '<rect x="2.5" y="9" width="19" height="6" rx="1.5"/><rect x="9.5" y="7.5" width="5" height="9" rx="1"/>',
+    medical: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/>',
+    consumables: '<path d="M7 5h10v14.5a1.5 1.5 0 01-1.5 1.5h-7A1.5 1.5 0 017 19.5z"/><path d="M7 9h10M7 16h10"/>',
+    electronics: '<rect x="7" y="7" width="10" height="10" rx="1"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>',
+    keys: '<circle cx="7.5" cy="12" r="4"/><path d="M11.5 12H21M18 12v4M21 12v3"/>',
+    books: '<path d="M5 4.5h11.5A2.5 2.5 0 0119 7v13H7.5A2.5 2.5 0 015 17.5z"/><path d="M5 17.5A2.5 2.5 0 017.5 15H19"/>',
+    fishing: '<path d="M14 3v11a4.5 4.5 0 01-9 0"/><path d="M5 14l-2.5-2.5M5 14l2.5-2.5"/>',
+    instruments: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+    lore: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>',
+    misc: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+    mod: '<g stroke-dasharray="2.2 2"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></g>'
+  };
+  function glyph(cat) { return '<span class="gl" title="' + esc(cat) + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + (GLYPH[String(cat).toLowerCase()] || GLYPH.mod) + '</svg></span>'; }
   function iconHint() { return gameDir ? (IC.fail ? '<p class="meta bad">Could not read item icons: ' + esc(IC.fail) + ' (see Settings, Game folder)</p>' : '') : '<p class="meta">Tip: choose the game folder in Settings to show item icons.</p>'; }
 
   /* ---------- inventory (read-only) ---------- */
@@ -229,7 +255,7 @@
     if (sort) order.sort(function (a, b) { var x = g[a].s, y = g[b].s; return x.cat.localeCompare(y.cat) || x.name.localeCompare(y.name); });
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n;
-      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + (s.file ? '<img class="ico" data-ic="' + esc(s.file) + '" alt="" hidden>' : '') + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (s.file ? '<img class="ico" data-ic="' + esc(s.file) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td><td>' + s.cond + '%</td><td>' + (s.qty || '') + '</td></tr>';
     }).join('');
   }
@@ -397,8 +423,7 @@
     var auto = localStorage.getItem('auto') === '1';
     $('#view').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
       '<div class="set"><h4>Save folder</h4><p>' + esc(saveDir) + '</p><button data-act="pick">Change&hellip;</button> <button data-act="open-save">Show in Explorer</button></div>' +
-      '<div class="set"><h4>Game mods folder</h4><p>' + esc(modsDir || 'Not set') + '</p><button data-act="pickmods">Choose&hellip;</button></div>' +
-      '<div class="set"><h4>Game folder (for item icons)</h4><p>' + esc(gameDir || 'Not set') + '</p><button data-act="pickgame">Choose&hellip;</button><p style="margin:10px 0 0">Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
+      '<div class="set"><h4>Game folder</h4><p>' + esc(gameDir || 'Not set') + (GD_AUTO ? ' (found automatically)' : '') + '</p><button data-act="pickgame">Choose&hellip;</button><p style="margin:10px 0 0">Used for item icons and to check which mods are installed (the <b>mods</b> folder inside it). Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
@@ -437,8 +462,7 @@
         for (var d of del) await fs.remove(j(bakDir, d.id), { recursive: true });
         toast(del.length + ' deleted');
       }
-      else if (act === 'pickgame') { var g = await T.dialog.open({ directory: true, defaultPath: gameDir || (modsDir ? modsDir.replace(/[\\/][^\\/]*$/, '') : undefined), title: 'Choose the Road to Vostok game folder' }); if (!g) return; gameDir = g; localStorage.setItem('gameDir', g); iconReset(); }
-      else if (act === 'pickmods') { var q = await T.dialog.open({ directory: true, defaultPath: modsDir || undefined, title: 'Choose the Road to Vostok mods folder' }); if (!q) return; modsDir = q; localStorage.setItem('modsDir', q); }
+      else if (act === 'pickgame') { var g = await T.dialog.open({ directory: true, defaultPath: gameDir || undefined, title: 'Choose the Road to Vostok game folder (the one with RTV.pck)' }); if (!g) return; GD_AUTO = false; setGame(g); localStorage.setItem('gameDir', g); iconReset(); }
       else if (act === 'clean') {
         var chosen = Array.prototype.filter.call(document.querySelectorAll('input[data-mod]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mod; });
         if (!chosen.length) { toast('Tick at least one mod to remove'); return; }
@@ -465,6 +489,10 @@
       var data = await T.path.dataDir(); SEP = data.indexOf('\\') !== -1 ? '\\' : '/';
       saveDir = localStorage.getItem('saveDir') || j(data, 'Road to Vostok');
       bakDir = j(await T.path.appDataDir(), 'backups');
+      var gd = localStorage.getItem('gameDir') || '';
+      if (!gd && localStorage.getItem('modsDir')) { gd = localStorage.getItem('modsDir').replace(/[\\/][^\\/]*$/, ''); localStorage.setItem('gameDir', gd); }
+      if (!gd) { try { if (await fs.exists(STEAM_DEFAULT)) { gd = STEAM_DEFAULT; GD_AUTO = true; } } catch (e) {} }
+      setGame(gd);
       await fs.mkdir(bakDir, { recursive: true });
       await startWatch();
     } catch (e) { toast('Startup error: ' + e); }

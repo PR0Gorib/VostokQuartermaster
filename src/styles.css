@@ -50,4 +50,6 @@ details{background:var(--panel);border:1px solid var(--line);border-radius:6px;m
 .fld input[type=number],.fld input[type=time],.fld select{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px 8px;max-width:none}
 .fld.chk{flex-direction:row;align-items:center;gap:8px;color:var(--text);cursor:pointer}
 dialog p{white-space:pre-line;max-height:260px;overflow:auto}
-.ico{height:32px;width:auto;max-width:96px;object-fit:contain;vertical-align:middle;margin-right:8px}
+.ib{display:inline-flex;align-items:center;justify-content:center;width:72px;height:32px;vertical-align:middle;margin-right:8px}
+.ico{max-height:32px;max-width:72px;object-fit:contain}
+.gl{display:inline-flex;color:var(--mut);opacity:.75}.gl[hidden]{display:none}

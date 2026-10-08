@@ -56,3 +56,4 @@ dialog p{white-space:pre-line;max-height:260px;overflow:auto}
 .tw{display:flex;gap:14px;align-items:flex-start}.tw>div:last-child{min-width:0;flex:1}
 .tb{flex:none;width:64px;height:64px;border-radius:6px;overflow:hidden;background:#0e1415;border:1px solid var(--line);display:flex;align-items:center;justify-content:center}
 .tb img{width:100%;height:100%;object-fit:cover}.tb .gl{opacity:.6}
+.set p.mt{margin:10px 0 0}.set p.nb{word-break:normal}

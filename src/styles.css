@@ -53,3 +53,6 @@ dialog p{white-space:pre-line;max-height:260px;overflow:auto}
 .ib{display:inline-flex;align-items:center;justify-content:center;width:72px;height:32px;vertical-align:middle;margin-right:8px}
 .ico{max-height:32px;max-width:72px;object-fit:contain}
 .gl{display:inline-flex;color:var(--mut);opacity:.75}.gl[hidden]{display:none}
+.tw{display:flex;gap:14px;align-items:flex-start}.tw>div:last-child{min-width:0;flex:1}
+.tb{flex:none;width:64px;height:64px;border-radius:6px;overflow:hidden;background:#0e1415;border:1px solid var(--line);display:flex;align-items:center;justify-content:center}
+.tb img{width:100%;height:100%;object-fit:cover}.tb .gl{opacity:.6}

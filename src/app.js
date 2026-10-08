@@ -169,6 +169,7 @@
   /* ---------- item icons (read from the installed game on demand; nothing is copied or stored) ---------- */
   var STEAM_DEFAULT = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok', GD_AUTO = false, gameDir = '', IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null };
   // one folder for everything: the mods folder is the "mods" folder inside the game folder
+  var APP_VER = '1.0.0';
   function setGame(dir) { gameDir = dir || ''; modsDir = gameDir ? j(gameDir, 'mods') : ''; }
   function pckReader(file, size) {
     var fh = null, q = Promise.resolve();
@@ -231,6 +232,7 @@
     instruments: '<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
     lore: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4M9 12h7M9 16h7"/>',
     misc: '<path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+    trader: '<circle cx="12" cy="8" r="4"/><path d="M4.5 21c.6-4.5 3.7-7 7.5-7s6.9 2.5 7.5 7"/>',
     mod: '<g stroke-dasharray="2.2 2"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></g>'
   };
   function glyph(cat) { return '<span class="gl" title="' + esc(cat) + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + (GLYPH[String(cat).toLowerCase()] || GLYPH.mod) + '</svg></span>'; }
@@ -310,9 +312,10 @@
     return t.keys(m).filter(function (k) { return k !== 'script' && k !== 'taskNotes' && k !== 'grandma'; }).map(function (k) {
       var done = (inner(t.get(m, k)).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (s) { return s.slice(1, -1); });
       var meta = TRADERS[k] || [k.charAt(0).toUpperCase() + k.slice(1), null], act = notes[k] || [];
-      return '<div class="snap"><div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span>' + (meta[2] ? '<span class="tag" title="Estimated: base tax x (1 - done / 10). Matches in-game values seen so far.">Tax ~' + Math.round(meta[2] * Math.max(0, 1 - done.length / meta[1])) + '% (est.)</span>' : '') + '</h4>' +
+      var pic = '<span class="tb"><img class="tpic" data-ic="res://Traders/' + esc(meta[0]) + '/' + esc(meta[0]) + '.tres" alt="" hidden>' + glyph('trader') + '</span>';
+      return '<div class="snap"><div class="tw">' + pic + '<div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span>' + (meta[2] ? '<span class="tag" title="Estimated: base tax x (1 - done / 10). Matches in-game values seen so far.">Tax ~' + Math.round(meta[2] * Math.max(0, 1 - done.length / meta[1])) + '% (est.)</span>' : '') + '</h4>' +
         (done.length ? '<div class="meta wi">' + done.map(esc).join(' &middot; ') + '</div>' : '<div class="meta">No tasks completed yet.</div>') +
-        (act.length ? '<div class="meta">In progress: ' + act.map(esc).join(', ') + '</div>' : '') + '</div></div>';
+        (act.length ? '<div class="meta">In progress: ' + act.map(esc).join(', ') + '</div>' : '') + '</div></div></div>';
     }).join('');
   }
   async function renderTraders() {
@@ -324,6 +327,7 @@
     try { v.innerHTML = head + ((await fs.exists(f)) ? tradersHtml(Tres.parse(await fs.readTextFile(f))) : '<div class="empty">No Traders.tres in this save.</div>'); }
     catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; }
     $('#tsrc').value = TS.src;
+    fillIcons();
   }
 
 
@@ -427,7 +431,8 @@
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
-      '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>';
+      '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
+      '<div class="set"><h4>About</h4><p style="word-break:normal"><b>Vostok Quartermaster</b> v' + esc(APP_VER) + '</p><p style="word-break:normal">Back up, repair, inspect and edit your Road to Vostok saves. Made for Build 2 saves.</p><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster">GitHub</button> <button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster/issues">Report a problem</button><p style="margin:10px 0 0;word-break:normal">Unofficial tool. Not affiliated with the Road to Vostok Ltd. Item icons and trader portraits are read from your own game files when needed and are never stored.</p></div>';
   }
   function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'traders' ? renderTraders() : page === 'edit' ? renderEdit() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
 
@@ -469,6 +474,7 @@
         var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.join(', '), chosen);
         await ask('Cleaned copy created', (r.done.length ? 'Removed items in: ' + r.done.join(', ') + '. ' : 'No item slots needed removing. ') + (r.left ? r.left + ' reference(s) to these mods remain (not item slots). ' : '') + 'Find it under Snapshots and restore it when the game is closed.', { ok: 'OK' });
       }
+      else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
       else if (act === 'open-bak') { await fs.mkdir(bakDir, { recursive: true }); return T.opener.revealItemInDir(bakDir); }
     } catch (e) { toast('Error: ' + e); if (act === 'mkedit') return; }
@@ -493,6 +499,7 @@
       if (!gd && localStorage.getItem('modsDir')) { gd = localStorage.getItem('modsDir').replace(/[\\/][^\\/]*$/, ''); localStorage.setItem('gameDir', gd); }
       if (!gd) { try { if (await fs.exists(STEAM_DEFAULT)) { gd = STEAM_DEFAULT; GD_AUTO = true; } } catch (e) {} }
       setGame(gd);
+      try { APP_VER = await T.app.getVersion(); } catch (e) {}
       await fs.mkdir(bakDir, { recursive: true });
       await startWatch();
     } catch (e) { toast('Startup error: ' + e); }

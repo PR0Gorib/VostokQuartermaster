@@ -14,7 +14,7 @@
   var TD = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
 
   function view(u8) { return new DataView(u8.buffer, u8.byteOffset, u8.byteLength); }
-  function str(u8, a, b) { return TD ? TD.decode(u8.subarray(a, b)) : Buffer.from(u8.subarray(a, b)).toString('utf8'); }
+  function str(u8, a, b) { if (b === undefined) b = u8.length; return TD ? TD.decode(u8.subarray(a, b)) : Buffer.from(u8.subarray(a, b)).toString('utf8'); }
 
   /* ---------- pack ---------- */
   async function open(reader) {
@@ -159,7 +159,48 @@
     throw new Error('Unsupported texture layout: ' + w + 'x' + h + ', ' + u8.length + ' bytes; ' + tried.join('; ') + '; u32 at 36..52 = ' + raw.join(','));
   }
 
-  var Pck = { open: open, iconIndex: iconIndex, iconFor: iconFor, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
+  /*
+   * Per-item icon lookup. Each item lives in its own folder (Items/<Category>/<Item>/) with its art in Files/.
+   * The icon is found there, and the .import file next to it names the exact texture, which avoids clashes
+   * between textures that share a file name elsewhere (e.g. the Coffee item and a UI sprite).
+   *   1. Files/Icon_<ItemFile>.png.import  (exact name)
+   *   2. otherwise the folder icon sharing the most name parts with the item (STANAG_Magazine -> Icon_M4A1_Magazine)
+   * Returns the .ctex path inside the pack, or null (mods, unknown items).
+   */
+  function folderIcons(pack) {
+    if (!pack._fi) {
+      var m = {};
+      pack.names.forEach(function (n) {
+        var x = /^(.+)\/Files\/(Icon_[^\/]+)\.png\.import$/.exec(n);
+        if (x) (m[x[1]] = m[x[1]] || []).push({ key: x[2], imp: n });
+      });
+      pack._fi = m;
+    }
+    return pack._fi;
+  }
+  function tokens(s) { var o = {}; String(s).toLowerCase().split(/[_\-\s]+/).forEach(function (t) { if (t) o[t] = true; }); return o; }
+  async function itemIcon(pack, itemPath) {
+    var p = String(itemPath).replace(/^res:\/\//, ''), dir = p.replace(/\/[^\/]*$/, ''), name = p.split('/').pop().replace(/\.tres$/i, '');
+    var list = folderIcons(pack)[dir];
+    if (!list || !list.length) return null;
+    var want = ('Icon_' + name).toLowerCase(), pick = null, i;
+    for (i = 0; i < list.length; i++) if (list[i].key.toLowerCase() === want) { pick = list[i]; break; }
+    if (!pick) {
+      var t = tokens(name), best = 0;
+      list.slice().sort(function (a, b) { return a.key.length - b.key.length || (a.key < b.key ? -1 : 1); }).forEach(function (e) {
+        var k = tokens(e.key.slice(5)), sc = 0; for (var w in t) if (k[w]) sc++;
+        if (sc > best) { best = sc; pick = e; }
+      });
+    }
+    if (!pick) return null;
+    var txt = str(await pack.read(pick.imp), 0, undefined), re = /res:\/\/(\.godot\/imported\/[^"\s]+\.ctex)/g, found = [], m;
+    while ((m = re.exec(txt))) found.push(m[1]);
+    var good = found.filter(function (f) { return pack.has(f); });
+    var s3 = good.filter(function (f) { return /\.s3tc\./.test(f); });
+    return (s3[0] || good[0]) || null;
+  }
+
+  var Pck = { open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
   root.Pck = Pck;
   if (typeof module !== 'undefined' && module.exports) module.exports = Pck;
 })(typeof window !== 'undefined' ? window : globalThis);

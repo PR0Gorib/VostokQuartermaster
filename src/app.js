@@ -154,7 +154,7 @@
     if (RS.src !== 'live' && !l.some(function (m) { return m.id === RS.src; })) RS.src = 'live';
     var srcDir = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data');
     if (!(await fs.exists(srcDir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; return; }
-    try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(e) + '<br><br><button data-act="pickgame" class="pri">Choose game folder again</button> <button data-act="srclive">Use current save folder</button></div>'; return; }
+    try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(niceErr(e)) + '<br><br><button data-act="pickgame" class="pri">Choose game folder again</button>' + (RS.src !== 'live' ? ' <button data-act="srclive">Use current save folder</button>' : '') + '</div>'; return; }
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var rows = mods.map(function (m) {
       return '<label class="snap"><div><h4><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> ' + esc(m.name) + '<span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></h4>' +
@@ -195,17 +195,17 @@
     })();
     return IC.busy;
   }
+  function niceErr(e) { var m = String(e && e.message || e); if (/cannot find the path|os error 3|No such file/i.test(m)) return 'the game folder was not found at this location, so choose it again'; return /forbidden path|not allowed on the scope/i.test(m) ? 'the app no longer has permission to read the game folder (it is not remembered between launches), so choose the folder again' : m; }
   function iconReset() { try { if (IC.close) IC.close(); } catch (e) {} IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null }; }
   function toUrl(tex) { var c = document.createElement('canvas'); c.width = tex.width; c.height = tex.height; c.getContext('2d').putImageData(new ImageData(tex.rgba, tex.width, tex.height), 0, 0); return c.toDataURL('image/png'); }
   async function fillIcons() {
     var imgs = Array.prototype.slice.call(document.querySelectorAll('#view img[data-ic]'));
     if (!imgs.length || !gameDir || IC.fail) return;
-    try { await iconPack(); } catch (e) { IC.fail = String(e && e.message || e); return; }
+    try { await iconPack(); } catch (e) { IC.fail = niceErr(e); return; }
     for (var im of imgs) {
       var n = im.dataset.ic;
       if (!(n in IC.url)) {
-        var p = Pck.iconFor(IC.idx, n);
-        try { IC.url[n] = p ? toUrl(Pck.decodeCtex(await IC.pack.read(p))) : ''; } catch (e) { IC.url[n] = ''; }
+        try { var p = await Pck.itemIcon(IC.pack, n); IC.url[n] = p ? toUrl(Pck.decodeCtex(await IC.pack.read(p))) : ''; } catch (e) { IC.url[n] = ''; }
       }
       if (IC.url[n]) { im.src = IC.url[n]; im.hidden = false; var g = im.parentNode.querySelector('.gl'); if (g) g.hidden = true; }
     }
@@ -234,7 +234,7 @@
     mod: '<g stroke-dasharray="2.2 2"><path d="M3 8l9-5 9 5v8l-9 5-9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></g>'
   };
   function glyph(cat) { return '<span class="gl" title="' + esc(cat) + '"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + (GLYPH[String(cat).toLowerCase()] || GLYPH.mod) + '</svg></span>'; }
-  function iconHint() { return gameDir ? (IC.fail ? '<p class="meta bad">Could not read item icons: ' + esc(IC.fail) + ' (see Settings, Game folder)</p>' : '') : '<p class="meta">Tip: choose the game folder in Settings to show item icons.</p>'; }
+  function iconHint() { return gameDir ? '' : '<p class="meta">Tip: choose the game folder in Settings to show item icons.</p>'; }
 
   /* ---------- inventory (read-only) ---------- */
   var IS = { src: 'live' };
@@ -246,7 +246,7 @@
     var b = t.subById(sid); if (!b) return null;
     var im = /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''), p = im ? (ext[im[1]] || '') : '';
     var n = function (k) { var x = parseFloat(t.get(b, k)); return isNaN(x) ? 0 : x; };
-    return { name: p ? Tres.itemName(p) : 'Unknown item', file: p ? p.split('/').pop().replace(/\.tres$/i, '') : '', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
+    return { name: p ? Tres.itemName(p) : 'Unknown item', path: p || '', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
       att: ids(inner(t.get(b, 'nested')), 'ExtResource').map(function (i) { return Tres.itemName(ext[i] || ''); }), stored: ids(inner(t.get(b, 'storage')), 'SubResource').length };
   }
   function rowsHtml(list, sort) {
@@ -255,7 +255,7 @@
     if (sort) order.sort(function (a, b) { var x = g[a].s, y = g[b].s; return x.cat.localeCompare(y.cat) || x.name.localeCompare(y.name); });
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n;
-      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (s.file ? '<img class="ico" data-ic="' + esc(s.file) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td><td>' + s.cond + '%</td><td>' + (s.qty || '') + '</td></tr>';
     }).join('');
   }
@@ -293,7 +293,7 @@
     shelters.sort(function (a, b) { return a.n.localeCompare(b.n); });
     v.innerHTML = head + iconHint() + (chars || '<div class="empty">No character file found in this save.</div>') + shelters.map(function (s) { return s.h; }).join('');
     $('#isrc').value = IS.src;
-    fillIcons().then(function () { if (IC.fail && page === 'inventory') { var h = $('#view .sub'); if (h && !$('#view .bad')) h.insertAdjacentHTML('afterend', iconHint()); } });
+    fillIcons();
   }
 
 

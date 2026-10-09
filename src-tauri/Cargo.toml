@@ -1,6 +1,6 @@
 [package]
 name = "vostok-quartermaster"
-version = "0.1.0"
+version = "1.0.0"
 description = "Save manager and editor for Road to Vostok"
 authors = ["pr0gorib"]
 edition = "2021"

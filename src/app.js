@@ -37,17 +37,35 @@
   }
 
   /* ---------- snapshots ---------- */
+  // Folder names: a snapshot you name gets that name (cleaned for Windows, made unique); automatic and unnamed
+  // ones keep a timestamp so they stay distinct. snapshot.json keeps the exact tag.
+  var stampOf = function (n) { return n.getFullYear() + pad(n.getMonth() + 1) + pad(n.getDate()) + '-' + pad(n.getHours()) + pad(n.getMinutes()) + pad(n.getSeconds()); };
+  function cleanName(s) {
+    s = String(s || '').replace(/[\\\/:*?"<>|\u0000-\u001f]+/g, ' - ').replace(/\s+/g, ' ').replace(/^[\s.-]+|[\s.-]+$/g, '').slice(0, 50).replace(/[\s.-]+$/, '');
+    return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(s) ? '_' + s : s;
+  }
+  async function uniqueName(base) {
+    var have = {};
+    if (await fs.exists(bakDir)) (await fs.readDir(bakDir)).forEach(function (e) { have[e.name.toLowerCase()] = true; });
+    var name = base, i = 2;
+    while (have[name.toLowerCase()]) name = base + ' (' + (i++) + ')';
+    return name;
+  }
+  function folderFor(tag, auto, n) {
+    var c = cleanName(tag);
+    return uniqueName(!auto && c ? c : (c || (auto ? 'Auto' : 'Snapshot')) + ' ' + stampOf(n));
+  }
   async function list() {
     if (!(await fs.exists(bakDir))) return [];
     var out = [];
     for (var e of await fs.readDir(bakDir)) {
       if (!e.isDirectory) continue;
-      try { out.push(JSON.parse(await fs.readTextFile(j(j(bakDir, e.name), 'snapshot.json')))); } catch (_) { /* not ours */ }
+      try { var m = JSON.parse(await fs.readTextFile(j(j(bakDir, e.name), 'snapshot.json'))); m.id = e.name; out.push(m); } catch (_) { /* not ours */ }
     }
     return out.sort(function (a, b) { return b.created.localeCompare(a.created); });
   }
   async function snap(tag, auto) {
-    var n = new Date(), id = n.getFullYear() + pad(n.getMonth() + 1) + pad(n.getDate()) + '-' + pad(n.getHours()) + pad(n.getMinutes()) + pad(n.getSeconds());
+    var n = new Date(), id = await folderFor(tag, auto, n);
     var dir = j(bakDir, id), data = j(dir, 'data');
     busyUntil = Date.now() + 6000;
     await copyDir(saveDir, data, true);
@@ -126,7 +144,7 @@
     });
   }
   async function snapFrom(src, tag) {
-    var n = new Date(), id = n.getFullYear() + pad(n.getMonth() + 1) + pad(n.getDate()) + '-' + pad(n.getHours()) + pad(n.getMinutes()) + pad(n.getSeconds());
+    var n = new Date(), id = await folderFor(tag, false, n);
     var dir = j(bakDir, id), data = j(dir, 'data');
     await copyDir(src, data, true);
     var meta = { id: id, tag: tag, auto: false, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
@@ -445,7 +463,14 @@
     try {
       if (act === 'backup') { var tag = await ask('Back up now', 'Add a tag to find it later (optional).', { input: true, ok: 'Back up' }); if (tag === null) return; await snap(tag, false); toast('Snapshot saved'); }
       else if (act === 'restore') { if (!(await ask('Restore this snapshot?', 'Close Road to Vostok first. Your current save is backed up automatically, then replaced with this snapshot.', { ok: 'Restore' }))) return; await restore(id); toast('Snapshot restored'); }
-      else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag, ok: 'Save' }); if (t === null) return; m.tag = t; await fs.writeTextFile(j(j(bakDir, id), 'snapshot.json'), JSON.stringify(m)); }
+      else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag, ok: 'Save' }); if (t === null) return;
+        var c = cleanName(t), nid = id;
+        if (c && c.toLowerCase() !== id.toLowerCase()) {
+          nid = await uniqueName(c);
+          try { await fs.rename(j(bakDir, id), j(bakDir, nid)); } catch (e) { toast('Could not rename the folder (is it open in Explorer?). Nothing was changed.'); return; }
+        }
+        m.tag = t; m.id = nid; await fs.writeTextFile(j(j(bakDir, nid), 'snapshot.json'), JSON.stringify(m));
+        if (nid !== id) { [RS, IS, TS, ES].forEach(function (s) { if (s.src === id) s.src = nid; }); } }
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; }
       else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }

@@ -320,7 +320,7 @@
   /* ---------- traders (read-only) ---------- */
   var TS = { src: 'live' };
   // task totals from the wiki (roadtovostok.wiki/traders); unknown traders just show the completed count
-  var TRADERS = { generalist: ['Generalist', 10, 100], doctor: ['Doctor', 10, 200], gunsmith: ['Gunsmith', 10, 300], driver: ['Driver', 1], hunter: ['Hunter', 0] };
+  var TRADERS = { generalist: ['Generalist', 10, 100], doctor: ['Doctor', 10, 200], gunsmith: ['Gunsmith', 10, 300], driver: ['Driver', 10, 200], hunter: ['Hunter', 10, 200] };
   function tradersHtml(t) {
     var m = t.main(), ext = extMap(t), notes = {};
     ids(inner(t.get(m, 'taskNotes')), 'ExtResource').forEach(function (i) {
@@ -331,7 +331,7 @@
       var done = (inner(t.get(m, k)).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (s) { return s.slice(1, -1); });
       var meta = TRADERS[k] || [k.charAt(0).toUpperCase() + k.slice(1), null], act = notes[k] || [];
       var pic = '<span class="tb"><img class="tpic" data-ic="res://Traders/' + esc(meta[0]) + '/' + esc(meta[0]) + '.tres" alt="" hidden>' + glyph('trader') + '</span>';
-      return '<div class="snap"><div class="tw">' + pic + '<div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span>' + (meta[2] ? '<span class="tag" title="Estimated: base tax x (1 - done / 10). Matches in-game values seen so far.">Tax ~' + Math.round(meta[2] * Math.max(0, 1 - done.length / meta[1])) + '% (est.)</span>' : '') + '</h4>' +
+      return '<div class="snap"><div class="tw">' + pic + '<div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span>' + (meta[2] ? '<span class="tag" title="Base tax, minus a tenth of it for every task done.">Tax ' + Math.round(meta[2] * Math.max(0, 1 - done.length / meta[1])) + '%</span>' : '') + '</h4>' +
         (done.length ? '<div class="meta wi">' + done.map(esc).join(' &middot; ') + '</div>' : '<div class="meta">No tasks completed yet.</div>') +
         (act.length ? '<div class="meta">In progress: ' + act.map(esc).join(', ') + '</div>' : '') + '</div></div></div>';
     }).join('');
@@ -450,9 +450,43 @@
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
-      '<div class="set"><h4>About</h4><p class="nb"><b>Vostok Quartermaster</b> v' + esc(APP_VER) + '</p><p class="nb">Back up, repair, inspect and edit your Road to Vostok saves. Made for Build 2 saves.</p><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster">GitHub</button> <button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster/issues">Report a problem</button><p class="mt nb">Unofficial tool. Not affiliated with the Road to Vostok Ltd. Item icons and trader portraits are read from your own game files when needed and are never stored.</p></div>';
+      '<div class="set"><h4>About</h4><p class="nb"><b>Vostok Quartermaster</b> v' + esc(APP_VER) + '</p><p class="nb">Back up, repair, inspect and edit your Road to Vostok saves. Made for Build 2 saves.</p><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster">GitHub</button> <button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster/issues">Report a problem</button><p class="mt nb">' + updStatus() + '</p><button data-act="chkupd">Check for updates</button>' + (updAvail() ? ' <button class="pri" data-act="open-url" data-url="' + esc(updUrl()) + '">View release</button>' : '') + '<p class="mt nb"><label><input type="checkbox" id="updchk" ' + (localStorage.getItem('updcheck') === '0' ? '' : 'checked') + '> Check for updates on startup</label><br><span class="meta">This only asks GitHub for the latest release number. Nothing is downloaded or installed.</span></p><p class="mt nb">Made with ❤️ by PR0Gorib</p><p class="mt nb">Unofficial tool. Not affiliated with the Road to Vostok Ltd. Item icons and trader portraits are read from your own game files when needed and are never stored.</p></div>';
   }
   function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'traders' ? renderTraders() : page === 'edit' ? renderEdit() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
+
+  /* ---------- update check (GitHub releases; only a link is shown, nothing is downloaded or installed) ---------- */
+  var REPO_URL = 'https://github.com/PR0Gorib/VostokQuartermaster', UP = { tag: '', url: '' };
+  function verParts(v) { var m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v || '').trim()); return m ? [+m[1], +m[2], +m[3]] : null; }
+  function isNewer(a, b) { var x = verParts(a), y = verParts(b); if (!x || !y) return false; for (var i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; }
+  function updAvail() { return !!UP.tag && isNewer(UP.tag, APP_VER); }
+  function updUrl() { return UP.url && UP.url.indexOf(REPO_URL + '/') === 0 ? UP.url : REPO_URL + '/releases'; }
+  function updUi() {
+    var el = $('#upd'); if (!el) return;
+    el.hidden = !updAvail();
+    el.innerHTML = updAvail() ? '<button data-act="open-url" data-url="' + esc(updUrl()) + '">Update available: ' + esc(UP.tag) + '</button>' : '';
+  }
+  async function checkUpdate(manual) {
+    if (!manual) {
+      if (localStorage.getItem('updcheck') === '0') return;
+      UP.tag = localStorage.getItem('updtag') || ''; UP.url = localStorage.getItem('updurl') || '';
+      if (Date.now() - (+localStorage.getItem('updlast') || 0) < 864e5) { updUi(); return; }
+    }
+    var ctl = new AbortController(), to = setTimeout(function () { ctl.abort(); }, 8000);
+    try {
+      var r = await fetch('https://api.github.com/repos/PR0Gorib/VostokQuartermaster/releases/latest', { headers: { Accept: 'application/vnd.github+json' }, signal: ctl.signal });
+      var d = r.status === 404 ? {} : r.ok ? await r.json() : null;
+      if (!d) throw new Error('HTTP ' + r.status);
+      UP.tag = String(d.tag_name || ''); UP.url = String(d.html_url || '');
+      localStorage.setItem('updtag', UP.tag); localStorage.setItem('updurl', UP.url); localStorage.setItem('updlast', String(Date.now()));
+      if (manual) toast(updAvail() ? 'Update available: ' + UP.tag : 'You are up to date (v' + APP_VER + ')');
+    } catch (e) { if (manual) toast('Could not check for updates. Are you online?'); }
+    finally { clearTimeout(to); }
+    updUi();
+  }
+  function updStatus() {
+    var last = +localStorage.getItem('updlast') || 0;
+    return (updAvail() ? '<span class="good">Update available: ' + esc(UP.tag) + '</span>' : last ? 'You are up to date.' : 'Not checked yet.') + (last ? ' <span class="meta">Last checked ' + esc(new Date(last).toLocaleString()) + '</span>' : '');
+  }
 
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
@@ -499,13 +533,14 @@
         var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.join(', '), chosen);
         await ask('Cleaned copy created', (r.done.length ? 'Removed items in: ' + r.done.join(', ') + '. ' : 'No item slots needed removing. ') + (r.left ? r.left + ' reference(s) to these mods remain (not item slots). ' : '') + 'Find it under Snapshots and restore it when the game is closed.', { ok: 'OK' });
       }
+      else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
       else if (act === 'open-bak') { await fs.mkdir(bakDir, { recursive: true }); return T.opener.revealItemInDir(bakDir); }
     } catch (e) { toast('Error: ' + e); if (act === 'mkedit') return; }
     render();
   });
-  document.addEventListener('change', function (ev) { if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } });
+  document.addEventListener('change', function (ev) { if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 
   document.addEventListener('input', function (ev) {
     if (ev.target.id !== 'invq') return;
@@ -525,6 +560,7 @@
       if (!gd) { try { if (await fs.exists(STEAM_DEFAULT)) { gd = STEAM_DEFAULT; GD_AUTO = true; } } catch (e) {} }
       setGame(gd);
       try { APP_VER = await T.app.getVersion(); } catch (e) {}
+      checkUpdate(false);
       await fs.mkdir(bakDir, { recursive: true });
       await startWatch();
     } catch (e) { toast('Startup error: ' + e); }

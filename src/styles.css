@@ -57,3 +57,5 @@ dialog p{white-space:pre-line;max-height:260px;overflow:auto}
 .tb{flex:none;width:64px;height:64px;border-radius:6px;overflow:hidden;background:#0e1415;border:1px solid var(--line);display:flex;align-items:center;justify-content:center}
 .tb img{width:100%;height:100%;object-fit:cover}.tb .gl{opacity:.6}
 .set p.mt{margin:10px 0 0}.set p.nb{word-break:normal}
+.foot{margin-top:auto}.foot .note{margin-top:0}
+#upd{margin-bottom:10px}#upd button{width:100%;text-align:left;font-size:12.5px;border-color:var(--rust);color:#f0a78f}

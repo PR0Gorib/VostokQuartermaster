@@ -277,8 +277,8 @@
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n;
       var ed = IS.edit && s.sid;
-      return '<tr' + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
-        (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td>' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td>' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td>' + s.cond + '%</td><td>' + (s.qty || '') + '</td>') + '</tr>';
+      return '<tr' + (/^res:\/\/Items\//i.test(s.path || '') ? ' data-path="' + esc(s.path) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+        (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
   var itemTable = function (rows) { return rows ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th>' + (IS.edit ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
@@ -295,6 +295,20 @@
     var det = function (title, items) { return '<details><summary>' + esc(title) + ' <span class="meta">&middot; ' + items.length + ' item' + (items.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(items, true)) + '</details>'; };
     return '<h2>' + esc(name) + '</h2><p class="meta">' + fur.length + ' furniture pieces &middot; ' + stored + ' items in containers &middot; ' + loose.length + ' loose items</p>' +
       cont.map(function (f) { return det(f.name, f.items); }).join('') + (loose.length ? det('Loose items', loose) : '');
+  }
+  // Uses the item definitions in the game files: hides condition/quantity where the game has none, caps the quantity at the stack limit.
+  async function applyDefs() {
+    var rows = Array.prototype.slice.call(document.querySelectorAll('#view tr[data-path]'));
+    if (!rows.length || !gameDir || IC.fail) return;
+    try { await iconPack(); } catch (e) { return; }
+    for (var tr of rows) {
+      var d; try { d = await Pck.itemDef(IC.pack, tr.dataset.path); } catch (e) { d = null; }
+      if (!d || !d.ok) continue;
+      var ed = tr.classList.contains('er'), cc = tr.querySelector('.cc'), qc = tr.querySelector('.qc');
+      if (cc && !d.showCondition) cc.innerHTML = '<span class="meta" title="The game does not use a condition for this item">' + (ed ? 'n/a' : '\u2013') + '</span>';
+      if (qc && !d.showAmount) qc.innerHTML = ed ? '<span class="meta" title="The game does not use a quantity for this item">n/a</span>' : '';
+      else if (qc && d.maxAmount) { var qi = qc.querySelector('input'); if (qi) { qi.max = d.maxAmount; if (+qi.value > d.maxAmount) qi.value = d.maxAmount; } }
+    }
   }
   async function renderInventory() {
     var v = $('#view'), l = await list();
@@ -317,6 +331,7 @@
     v.innerHTML = head + iconHint() + (chars || '<div class="empty">No character file found in this save.</div>') + shelters.map(function (s) { return s.h; }).join('');
     $('#isrc').value = IS.src;
     fillIcons();
+    applyDefs();
   }
 
 
@@ -328,7 +343,7 @@
       if (r && r.checked) { out.push({ file: d.file, rid: d.rid, sid: d.sid, name: d.name, remove: true, eq: !!d.eq }); return; }
       var e = { file: d.file, sid: d.sid, name: d.name };
       if (c && c.value !== d.ci) { var cv = parseInt(c.value, 10); if (isNaN(cv) || cv < 0 || cv > 100) throw new Error(d.name + ': condition must be 0 to 100'); e.cond = cv; e.condFrom = d.ci; }
-      if (a && a.value !== d.ai) { var av = parseInt(a.value, 10); if (isNaN(av) || av < 1) throw new Error(d.name + ': quantity must be 1 or more'); e.amt = av; e.amtFrom = d.ai; }
+      if (a && a.value !== d.ai) { var av = parseInt(a.value, 10); var amax = +a.max > 0 ? +a.max : Infinity; if (isNaN(av) || av < 1 || av > amax) throw new Error(d.name + ': quantity must be 1' + (amax < Infinity ? ' to ' + amax : ' or more')); e.amt = av; e.amtFrom = d.ai; }
       if (e.cond !== undefined || e.amt !== undefined) out.push(e);
     });
     return out;
@@ -602,12 +617,12 @@
   });
   document.addEventListener('change', function (ev) {
     var cw = ev.target.dataset && ev.target.dataset.w;
-    if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : Infinity, Math.max(isC ? 0 : 1, nn)); }
+    if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC ? 0 : 1, nn)); }
     if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; IS.edit = false; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 
   document.addEventListener('input', function (ev) {
     var tw = ev.target.dataset && ev.target.dataset.w;
-    if (tw === 'c' || tw === 'a') { var nv = ev.target.value; if (tw === 'c' && nv !== '' && +nv > 100) ev.target.value = 100; if (nv !== '' && +nv < 0) ev.target.value = tw === 'c' ? 0 : 1; return; }
+    if (tw === 'c' || tw === 'a') { var nv = ev.target.value; if (tw === 'c' && nv !== '' && +nv > 100) ev.target.value = 100; if (tw === 'a' && nv !== '' && +ev.target.max > 0 && +nv > +ev.target.max) ev.target.value = ev.target.max; if (nv !== '' && +nv < 0) ev.target.value = tw === 'c' ? 0 : 1; return; }
     if (ev.target.id !== 'invq') return;
     var q = ev.target.value.trim().toLowerCase();
     document.querySelectorAll('#view tr[data-q]').forEach(function (r) { r.hidden = !!q && r.dataset.q.indexOf(q) === -1; });

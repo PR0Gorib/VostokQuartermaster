@@ -200,7 +200,121 @@
     return (s3[0] || good[0]) || null;
   }
 
-  var Pck = { open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
+  /*
+   * Item definitions. Each base-game item has a definition resource in the pack (Godot binary format) with flags
+   * such as showCondition / showAmount and numbers such as size, defaultAmount and maxAmount. Godot stores only
+   * values that differ from the script defaults, so a missing flag means false and a missing size means 1x1.
+   * The layout below follows Godot 4's binary resource format; if anything cannot be decoded the result has
+   * ok:false and callers must treat that as "unknown" and not hide anything.
+   */
+  function BR(u8) { this.u8 = u8; this.dv = view(u8); this.p = 0; this.real64 = false; }
+  BR.prototype.u16 = function () { var v = this.dv.getUint16(this.p, true); this.p += 2; return v; };
+  BR.prototype.u32 = function () { var v = this.dv.getUint32(this.p, true); this.p += 4; return v; };
+  BR.prototype.i32 = function () { var v = this.dv.getInt32(this.p, true); this.p += 4; return v; };
+  BR.prototype.u64 = function () { var v = Number(this.dv.getBigUint64(this.p, true)); this.p += 8; return v; };
+  BR.prototype.i64 = function () { var v = Number(this.dv.getBigInt64(this.p, true)); this.p += 8; return v; };
+  BR.prototype.f32 = function () { var v = this.dv.getFloat32(this.p, true); this.p += 4; return v; };
+  BR.prototype.f64 = function () { var v = this.dv.getFloat64(this.p, true); this.p += 8; return v; };
+  BR.prototype.real = function () { return this.real64 ? this.f64() : this.f32(); };
+  BR.prototype.str = function () {
+    var n = this.u32();
+    if (n > 1048576 || this.p + n > this.u8.length) throw new Error('bad string length ' + n);
+    var o = str(this.u8, this.p, this.p + n).replace(/\0+$/, ''); this.p += n; return o;
+  };
+  function rnd(x) { return Math.round(x * 10000) / 10000; }
+  function readVariant(r, res) {
+    var t = r.u32(), n, i, a;
+    switch (t) {
+      case 1: return null;
+      case 2: return !!r.u32();
+      case 3: return r.i32();
+      case 4: return rnd(r.real());
+      case 5: case 44: return r.str();
+      case 10: return { v2: [rnd(r.real()), rnd(r.real())] };
+      case 11: r.p += 4 * (r.real64 ? 8 : 4); return '<Rect2>';
+      case 12: return { v3: [rnd(r.real()), rnd(r.real()), rnd(r.real())] };
+      case 14: r.p += 4 * (r.real64 ? 8 : 4); return '<Quaternion>';
+      case 20: r.p += 16; return '<Color>';
+      case 40: return r.i64();
+      case 41: return rnd(r.f64());
+      case 45: return { v2: [r.i32(), r.i32()] };
+      case 46: r.p += 16; return '<Rect2i>';
+      case 47: return { v3: [r.i32(), r.i32(), r.i32()] };
+      case 50: r.p += 4 * (r.real64 ? 8 : 4); return '<Vector4>';
+      case 24: {
+        var k = r.u32();
+        if (k === 0) return null;
+        if (k === 1) { r.str(); return r.str(); }
+        if (k === 2 || k === 3) { r.u32(); return '<resource>'; }
+        throw new Error('unknown object kind ' + k);
+      }
+      case 26: { n = r.u32() & 0x7fffffff; if (n > 100000) throw new Error('dictionary size'); for (i = 0; i < n; i++) { readVariant(r, res); readVariant(r, res); } return '<dictionary>'; }
+      case 30: { n = r.u32() & 0x7fffffff; if (n > 100000) throw new Error('array size'); a = []; for (i = 0; i < n; i++) a.push(readVariant(r, res)); return a; }
+      case 31: { n = r.u32(); r.p += n + ((4 - n % 4) % 4); return '<bytes>'; }
+      case 32: case 33: { n = r.u32(); r.p += 4 * n; return '<array>'; }
+      case 34: { n = r.u32(); for (i = 0; i < n; i++) r.str(); return '<strings>'; }
+      case 48: { n = r.u32(); r.p += 8 * n; return '<array>'; }
+      default: throw new Error('unknown variant type ' + t);
+    }
+  }
+  function parseRes(u8) {
+    var r = new BR(u8), magic = str(u8, 0, 4);
+    if (magic !== 'RSRC') throw new Error('not a binary resource (' + magic + ')');
+    r.p = 4;
+    var big = r.u32(), real64 = r.u32();
+    if (big) throw new Error('big-endian resource');
+    r.real64 = !!real64;
+    var res = { major: r.u32(), minor: r.u32(), format: r.u32() };
+    res.type = r.str(); r.u64();
+    var flags = r.u32();
+    if (flags & 2) r.u64();
+    if (flags & 8) res.scriptClass = r.str();
+    r.p += 11 * 4;
+    var n = r.u32(), i; res.strings = [];
+    for (i = 0; i < n; i++) res.strings.push(r.str());
+    n = r.u32(); res.exts = [];
+    for (i = 0; i < n; i++) { var e = { type: r.str(), path: r.str() }; if (flags & 2) r.u64(); res.exts.push(e); }
+    n = r.u32(); res.ints = [];
+    for (i = 0; i < n; i++) res.ints.push({ path: r.str(), offset: r.u64() });
+    res.objects = res.ints.map(function (ir) {
+      var o = { path: ir.path, props: {} };
+      try {
+        r.p = ir.offset; o.type = r.str();
+        var pc = r.u32();
+        for (var k = 0; k < pc; k++) { var ni = r.u32(); o.props[res.strings[ni] !== undefined ? res.strings[ni] : '#' + ni] = readVariant(r, res); }
+      } catch (err) { o.error = String(err && err.message || err); }
+      return o;
+    });
+    return res;
+  }
+  function defFromRes(res) {
+    var o = res.objects.filter(function (x) { return /^res:\/\//.test(x.path); })[0] || res.objects[res.objects.length - 1];
+    if (!o) return { ok: false, error: 'no object' };
+    if (o.error) return { ok: false, error: o.error };
+    var p = o.props, stackable = !!p.stackable, sz = p.size && p.size.v2 ? p.size.v2 : [1, 1];
+    return {
+      ok: true, type: p.type || '', size: [Math.max(1, Math.round(sz[0])), Math.max(1, Math.round(sz[1]))],
+      showCondition: !!p.showCondition, showAmount: !!p.showAmount, stackable: stackable,
+      defaultAmount: typeof p.defaultAmount === 'number' ? p.defaultAmount : (stackable ? 1 : 0),
+      maxAmount: typeof p.maxAmount === 'number' ? p.maxAmount : 0,
+      capacity: typeof p.capacity === 'number' ? p.capacity : 0, weight: typeof p.weight === 'number' ? p.weight : 0
+    };
+  }
+  // itemPath: res://Items/Misc/Lumber/Lumber.tres. Returns null for anything that is not a base-game item.
+  async function itemDef(pack, itemPath) {
+    var p = String(itemPath).replace(/^res:\/\//, '');
+    if (!pack.has(p + '.remap')) return null;
+    pack._defs = pack._defs || {};
+    if (pack._defs[p]) return pack._defs[p];
+    var def;
+    try {
+      var m = /path="res:\/\/([^"]+)"/.exec(str(await pack.read(p + '.remap')));
+      def = m && pack.has(m[1]) ? defFromRes(parseRes(await pack.read(m[1]))) : { ok: false, error: 'definition file not found' };
+    } catch (e) { def = { ok: false, error: String(e && e.message || e) }; }
+    pack._defs[p] = def; return def;
+  }
+
+  var Pck = { open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, itemDef: itemDef, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
   root.Pck = Pck;
   if (typeof module !== 'undefined' && module.exports) module.exports = Pck;
 })(typeof window !== 'undefined' ? window : globalThis);

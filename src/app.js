@@ -262,24 +262,26 @@
   var inner = function (s) { var x = /\(\[(.*)\]\)\s*$/.exec(s || ''); return x ? x[1] : ''; };
   var extMap = function (t) { var o = {}; t.ext().forEach(function (b) { o[b.attrs.id] = b.attrs.path || ''; }); return o; };
   function catOf(p) { var m = /^res:\/\/Items\/([^\/]+)\//.exec(p); return m ? m[1] : (Tres.modOf(p) || 'Other'); }
-  function slotInfo(t, ext, sid) {
+  var CUR_FILE = '';
+  function slotInfo(t, ext, sid, rid) {
     var b = t.subById(sid); if (!b) return null;
     var im = /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''), p = im ? (ext[im[1]] || '') : '';
     var n = function (k) { var x = parseFloat(t.get(b, k)); return isNaN(x) ? 0 : x; };
-    return { name: p ? Tres.itemName(p) : 'Unknown item', path: p || '', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
+    return { sid: sid, rid: rid || sid, file: CUR_FILE, hasC: t.get(b, 'condition') !== undefined, hasA: t.get(b, 'amount') !== undefined, name: p ? Tres.itemName(p) : 'Unknown item', path: p || '', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
       att: ids(inner(t.get(b, 'nested')), 'ExtResource').map(function (i) { return Tres.itemName(ext[i] || ''); }), stored: ids(inner(t.get(b, 'storage')), 'SubResource').length };
   }
   function rowsHtml(list, sort) {
-    var g = {}, order = [];
-    list.forEach(function (s) { if (!s) return; var k = [s.name, s.cond, s.qty, s.att.join('+'), s.slot, s.stored].join('|'); if (!g[k]) { g[k] = { s: s, n: 0 }; order.push(k); } g[k].n++; });
+    var g = {}, order = [], seq = 0;
+    list.forEach(function (s) { if (!s) return; var k = IS.edit ? 'e' + (seq++) : [s.name, s.cond, s.qty, s.att.join('+'), s.slot, s.stored].join('|'); if (!g[k]) { g[k] = { s: s, n: 0 }; order.push(k); } g[k].n++; });
     if (sort) order.sort(function (a, b) { var x = g[a].s, y = g[b].s; return x.cat.localeCompare(y.cat) || x.name.localeCompare(y.name); });
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n;
-      return '<tr data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
-        (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td><td>' + s.cond + '%</td><td>' + (s.qty || '') + '</td></tr>';
+      var ed = IS.edit && s.sid;
+      return '<tr' + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+        (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td>' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td>' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td>' + s.cond + '%</td><td>' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
-  var itemTable = function (rows) { return rows ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
+  var itemTable = function (rows) { return rows ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th>' + (IS.edit ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
   function charHtml(t, m, ext) {
     var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment'), inv = map('inventory');
     return '<h2>Character</h2><h3>Equipped</h3>' + itemTable(rowsHtml(eq, false)) + '<h3>Carried &middot; ' + inv.length + ' items</h3>' + itemTable(rowsHtml(inv, true));
@@ -289,7 +291,7 @@
       var b = t.subById(id); return { name: String(t.get(b, 'name') || '').replace(/"/g, ''), items: ids(t.get(b, 'storage'), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }) };
     });
     var cont = fur.filter(function (f) { return f.items.length; }), stored = cont.reduce(function (n, f) { return n + f.items.length; }, 0);
-    var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0]) : null; }).filter(Boolean);
+    var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0], id) : null; }).filter(Boolean);
     var det = function (title, items) { return '<details><summary>' + esc(title) + ' <span class="meta">&middot; ' + items.length + ' item' + (items.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(items, true)) + '</details>'; };
     return '<h2>' + esc(name) + '</h2><p class="meta">' + fur.length + ' furniture pieces &middot; ' + stored + ' items in containers &middot; ' + loose.length + ' loose items</p>' +
       cont.map(function (f) { return det(f.name, f.items); }).join('') + (loose.length ? det('Loose items', loose) : '');
@@ -299,13 +301,14 @@
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Inventory</h1><p class="sub">What is equipped, carried and stored. Read-only: nothing here changes your save.</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items"></div>';
+    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, or tick Remove, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What is equipped, carried and stored. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#isrc').value = IS.src; return; }
     var chars = '', shelters = [];
     try {
       for (var e of await fs.readDir(dir)) {
         if (!isTres(e)) continue;
         var t = Tres.parse(await fs.readTextFile(j(dir, e.name))), m = t.main(); if (!m) continue;
+        CUR_FILE = e.name;
         if (t.get(m, 'equipment') !== undefined) chars += charHtml(t, m, extMap(t));
         else if (t.get(m, 'furnitures') !== undefined) shelters.push({ n: e.name.replace(/\.tres$/i, ''), h: shelterHtml(e.name.replace(/\.tres$/i, ''), t, m, extMap(t)) });
       }
@@ -316,6 +319,48 @@
     fillIcons();
   }
 
+
+  /* ---------- inventory editing (always written to a new snapshot) ---------- */
+  function collectInvEdits() {
+    var out = [];
+    document.querySelectorAll('#view tr.er').forEach(function (tr) {
+      var d = tr.dataset, c = tr.querySelector('[data-w="c"]'), a = tr.querySelector('[data-w="a"]'), r = tr.querySelector('[data-w="r"]');
+      if (r && r.checked) { out.push({ file: d.file, rid: d.rid, sid: d.sid, name: d.name, remove: true, eq: !!d.eq }); return; }
+      var e = { file: d.file, sid: d.sid, name: d.name };
+      if (c && c.value !== d.ci) { var cv = parseInt(c.value, 10); if (isNaN(cv) || cv < 0 || cv > 100) throw new Error(d.name + ': condition must be 0 to 100'); e.cond = cv; e.condFrom = d.ci; }
+      if (a && a.value !== d.ai) { var av = parseInt(a.value, 10); if (isNaN(av) || av < 1) throw new Error(d.name + ': quantity must be 1 or more'); e.amt = av; e.amtFrom = d.ai; }
+      if (e.cond !== undefined || e.amt !== undefined) out.push(e);
+    });
+    return out;
+  }
+  var numLike = function (raw, v) { return /\./.test(String(raw)) ? Number(v).toFixed(1) : String(v); };
+  // builds the new file texts in memory and checks them; nothing is written yet
+  async function planInv(src, edits) {
+    var byFile = {}, out = {}, removed = 0, edited = 0;
+    edits.forEach(function (e) { (byFile[e.file] = byFile[e.file] || []).push(e); });
+    for (var f of Object.keys(byFile)) {
+      var t = Tres.parse(await fs.readTextFile(j(src, f))), gone = {};
+      byFile[f].filter(function (e) { return !e.remove; }).forEach(function (e) {
+        var b = t.subById(e.sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
+        if (e.cond !== undefined) t.set(b, 'condition', numLike(t.get(b, 'condition'), e.cond));
+        if (e.amt !== undefined) t.set(b, 'amount', numLike(t.get(b, 'amount'), e.amt));
+        edited++;
+      });
+      byFile[f].filter(function (e) { return e.remove; }).forEach(function (e) {
+        if (gone[e.rid]) return;
+        var r = t.removeSlot(e.rid); if (!r.length) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
+        r.forEach(function (id) { gone[id] = true; }); removed += r.length;
+      });
+      var bad = t.validate(); if (bad.length) throw new Error(f + ': ' + bad[0]);
+      out[f] = t.serialize();
+    }
+    return { out: out, removed: removed, edited: edited };
+  }
+  async function makeInvEdited(src, plan, n) {
+    var meta = await snapFrom(src, 'Edited inventory: ' + n + ' change' + (n === 1 ? '' : 's')), data = j(j(bakDir, meta.id), 'data');
+    for (var f of Object.keys(plan.out)) await fs.writeTextFile(j(data, f), plan.out[f]);
+    return meta;
+  }
 
   /* ---------- traders (read-only) ---------- */
   var TS = { src: 'live' };
@@ -491,7 +536,7 @@
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
     var nb = ev.target.closest('#nav button[data-page]');
-    if (nb) { page = nb.dataset.page; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
+    if (nb) { page = nb.dataset.page; IS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
     var b = ev.target.closest('[data-act]'); if (!b) return;
     var act = b.dataset.act, id = b.parentElement.dataset.id;
     try {
@@ -533,6 +578,21 @@
         var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.join(', '), chosen);
         await ask('Cleaned copy created', (r.done.length ? 'Removed items in: ' + r.done.join(', ') + '. ' : 'No item slots needed removing. ') + (r.left ? r.left + ' reference(s) to these mods remain (not item slots). ' : '') + 'Find it under Snapshots and restore it when the game is closed.', { ok: 'OK' });
       }
+      else if (act === 'inv-edit') {
+        if (IS.edit) { var pend; try { pend = collectInvEdits().length; } catch (e) { pend = 1; } if (pend && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return; }
+        IS.edit = !IS.edit;
+      }
+      else if (act === 'inv-apply') {
+        var ie = collectInvEdits(); if (!ie.length) { toast('No changes to apply'); return; }
+        var isrc = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data'), plan = await planInv(isrc, ie);
+        var lines = ie.slice(0, 14).map(function (e) { return e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
+        if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
+        var eqWarn = ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '';
+        if (!(await ask('Create edited copy?', lines.join('\n') + '\n\n' + plan.edited + ' item' + (plan.edited === 1 ? '' : 's') + ' changed, ' + plan.removed + ' removed' + (plan.removed ? ' (including anything stored inside them)' : '') + '.' + eqWarn, { ok: 'Create' }))) return;
+        await makeInvEdited(isrc, plan, ie.length);
+        IS.edit = false;
+        await ask('Edited copy created', 'Find it under Snapshots (tagged \"Edited inventory\") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
+      }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
@@ -540,9 +600,14 @@
     } catch (e) { toast('Error: ' + e); if (act === 'mkedit') return; }
     render();
   });
-  document.addEventListener('change', function (ev) { if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
+  document.addEventListener('change', function (ev) {
+    var cw = ev.target.dataset && ev.target.dataset.w;
+    if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : Infinity, Math.max(isC ? 0 : 1, nn)); }
+    if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; IS.edit = false; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 
   document.addEventListener('input', function (ev) {
+    var tw = ev.target.dataset && ev.target.dataset.w;
+    if (tw === 'c' || tw === 'a') { var nv = ev.target.value; if (tw === 'c' && nv !== '' && +nv > 100) ev.target.value = 100; if (nv !== '' && +nv < 0) ev.target.value = tw === 'c' ? 0 : 1; return; }
     if (ev.target.id !== 'invq') return;
     var q = ev.target.value.trim().toLowerCase();
     document.querySelectorAll('#view tr[data-q]').forEach(function (r) { r.hidden = !!q && r.dataset.q.indexOf(q) === -1; });

@@ -182,6 +182,26 @@
     return report;
   };
 
+  // Remove one sub_resource (an item slot) and everything it owns (items stored inside it, recursively),
+  // dropping the references to them from arrays. Returns the removed ids; an empty list if the id does not exist.
+  Tres.prototype.removeSlot = function (subId) {
+    var self = this;
+    if (!this.subById(subId)) return [];
+    var doomed = [subId], queue = [subId], seen = {};
+    seen[subId] = true;
+    while (queue.length) {
+      var sb = this.subById(queue.shift());
+      if (!sb) continue;
+      this.blockRefs(sb, 'SubResource').forEach(function (cid) { if (!seen[cid]) { seen[cid] = true; doomed.push(cid); queue.push(cid); } });
+    }
+    doomed.forEach(function (sid) {
+      removeFromArrays(self, sid);
+      var blk = self.subById(sid);
+      if (blk) self.blocks.splice(self.blocks.indexOf(blk), 1);
+    });
+    return doomed;
+  };
+
   // convenience: strip everything that depends on uninstalled mods
   Tres.prototype.removeOrphans = function (installed) {
     var self = this, reports = [];

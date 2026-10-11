@@ -59,3 +59,5 @@ dialog p{white-space:pre-line;max-height:260px;overflow:auto}
 .set p.mt{margin:10px 0 0}.set p.nb{word-break:normal}
 .foot{margin-top:auto}.foot .note{margin-top:0}
 #upd{margin-bottom:10px}#upd button{width:100%;text-align:left;font-size:12.5px;border-color:var(--rust);color:#f0a78f}
+.itm input[type=number]{width:74px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:4px 6px}
+.itm label{cursor:pointer;color:var(--mut)}tr.rm td{opacity:.45;text-decoration:line-through}tr.rm td:last-child{text-decoration:none;opacity:1}

@@ -202,6 +202,55 @@
     return doomed;
   };
 
+  /* ---------- adding things (new ids, resources and array entries) ---------- */
+  // a fresh sub_resource id in the game's own style: Resource_ + 5 lowercase letters/digits
+  Tres.prototype.newSubId = function () {
+    var chars = 'abcdefghijklmnopqrstuvwxyz0123456789', id;
+    do { id = 'Resource_'; for (var i = 0; i < 5; i++) id += chars.charAt(Math.floor(Math.random() * chars.length)); } while (this.subById(id));
+    return id;
+  };
+  // Returns the id of the ext_resource for `path`, adding one (next free number) if the file does not have it yet.
+  Tres.prototype.extFor = function (path, type) {
+    var ex = this.ext(), i, max = 0;
+    for (i = 0; i < ex.length; i++) { if (ex[i].attrs.path === path) return ex[i].attrs.id; var n = parseInt(ex[i].attrs.id, 10); if (!isNaN(n) && n > max) max = n; }
+    var id = String(max + 1), line = '[ext_resource type="' + type + '" path="' + path + '" id="' + id + '"]';
+    var blk = { kind: 'ext_resource', lines: [line], attrs: parseAttrs(line) };
+    var at = ex.length ? this.blocks.indexOf(ex[ex.length - 1]) + 1 : 1;
+    if (ex.length) { var last = ex[ex.length - 1]; if (last.lines.length > 1 && last.lines[last.lines.length - 1] === '') { last.lines.pop(); blk.lines.push(''); } }
+    this.blocks.splice(at, 0, blk);
+    return id;
+  };
+  // Adds a sub_resource right before the main [resource]. props = [[key, rawValue], ...]. Returns its id.
+  Tres.prototype.addSub = function (props, type) {
+    var id = this.newSubId(), line = '[sub_resource type="' + (type || 'Resource') + '" id="' + id + '"]';
+    var lines = [line]; props.forEach(function (p) { lines.push(p[0] + ' = ' + p[1]); }); lines.push('');
+    var blk = { kind: 'sub_resource', lines: lines, attrs: parseAttrs(line) };
+    var m = this.main(), at = m ? this.blocks.indexOf(m) : this.blocks.length;
+    this.blocks.splice(at, 0, blk);
+    return id;
+  };
+  // Appends a token such as SubResource("Resource_abc12") to an array property: key = Array[...]([a, b]) or ([])
+  Tres.prototype.appendRef = function (block, key, token) {
+    var i = propIndex(block, key);
+    if (i < 0) throw new Error('No such property: ' + key);
+    var line = block.lines[i];
+    if (/\(\[\]\)\s*$/.test(line)) block.lines[i] = line.replace(/\(\[\]\)\s*$/, '([' + token + '])');
+    else if (/\]\)\s*$/.test(line)) block.lines[i] = line.replace(/\]\)\s*$/, ', ' + token + '])');
+    else throw new Error('Unexpected array format in ' + key);
+  };
+  // load_steps in the header is ext + sub resources + the main one; keep it consistent only if it was consistent before
+  Tres.prototype.loadSteps = function () {
+    var h = this.blocks[0] && this.blocks[0].kind === 'gd_resource' ? this.blocks[0] : null;
+    if (!h) return null;
+    var m = /load_steps=(\d+)/.exec(h.lines[0]);
+    return m ? { block: h, value: +m[1], count: this.ext().length + this.subs().length + 1 } : null;
+  };
+  Tres.prototype.setLoadSteps = function (before) {
+    var now = this.loadSteps();
+    if (!before || !now || before.value !== before.count) return;
+    now.block.lines[0] = now.block.lines[0].replace(/load_steps=\d+/, 'load_steps=' + now.count);
+  };
+
   // convenience: strip everything that depends on uninstalled mods
   Tres.prototype.removeOrphans = function (installed) {
     var self = this, reports = [];

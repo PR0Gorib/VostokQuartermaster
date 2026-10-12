@@ -61,3 +61,6 @@ dialog p{white-space:pre-line;max-height:260px;overflow:auto}
 #upd{margin-bottom:10px}#upd button{width:100%;text-align:left;font-size:12.5px;border-color:var(--rust);color:#f0a78f}
 .itm input[type=number]{width:74px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:4px 6px}
 .itm label{cursor:pointer;color:var(--mut)}tr.rm td{opacity:.45;text-decoration:line-through}tr.rm td:last-child{text-decoration:none;opacity:1}
+.addbar{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}.addbar .aitem{flex:1;min-width:200px;padding:6px 10px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;font:inherit}
+.addbar .aqty{width:74px;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:6px}.addbar .amsg{flex-basis:100%}
+tr.ea td{background:#1b2a22}

@@ -350,6 +350,43 @@
     if (w !== h) for (row = 0; row <= H - w; row++) for (col = 0; col <= W - h; col++) if (fits(col, row, h, w)) return { col: col, row: row, rot: true };
     return null;
   }
+  var CELLPX = 36, AID = 0;
+  function gridHtml(f) {
+    return '<div class="cgrid" data-w="' + f.dims[0] + '" data-h="' + f.dims[1] + '">' + f.items.map(function (s) {
+      return '<div class="gi" data-path="' + esc(s.path) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '" data-name="' + esc(s.name) + '" title="' + esc(s.name) + '">' +
+        (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</div>';
+    }).join('') + '</div><p class="meta gmsg"></p>';
+  }
+  // positions and sizes are set from code (the page's CSP does not allow inline style attributes)
+  async function layoutGrids() {
+    var grids = Array.prototype.slice.call(document.querySelectorAll('#view .cgrid'));
+    if (!grids.length) return;
+    var haveDefs = false; if (gameDir && !IC.fail) { try { await iconPack(); haveDefs = true; } catch (e) {} }
+    for (var g of grids) {
+      var W = +g.dataset.w, H = +g.dataset.h, placed = [], issues = [], maxc = 0, maxr = 0, unknown = 0;
+      g.style.width = W * CELLPX + 'px'; g.style.height = H * CELLPX + 'px'; g.style.backgroundSize = CELLPX + 'px ' + CELLPX + 'px';
+      var els = Array.prototype.slice.call(g.querySelectorAll('.gi'));
+      for (var el of els) {
+        var d = null; try { d = haveDefs && /^res:\/\/Items\//i.test(el.dataset.path || '') ? await Pck.itemDef(IC.pack, el.dataset.path) : null; } catch (e) { d = null; }
+        var known = !!(d && d.ok), sz = known ? d.size : [1, 1], rot = el.dataset.rot === '1', gx = parseFloat(el.dataset.gx), gy = parseFloat(el.dataset.gy);
+        var w = rot ? sz[1] : sz[0], h = rot ? sz[0] : sz[1], col = gx / CELL, row = gy / CELL, nm = el.dataset.name || 'item';
+        if (isNaN(gx) || isNaN(gy)) { issues.push(nm + ' has no readable position'); el.hidden = true; continue; }
+        if (gx % CELL || gy % CELL) issues.push(nm + ' is not on the 64-unit grid (x ' + gx + ', y ' + gy + ')');
+        if (!known) { unknown++; el.classList.add('unk'); }
+        el.style.left = col * CELLPX + 'px'; el.style.top = row * CELLPX + 'px'; el.style.width = w * CELLPX + 'px'; el.style.height = h * CELLPX + 'px';
+        placed.push({ col: col, row: row, w: w, h: h, el: el, name: nm });
+        maxc = Math.max(maxc, col + w); maxr = Math.max(maxr, row + h);
+      }
+      placed.forEach(function (p, i) {
+        var out = p.col < 0 || p.row < 0 || p.col + p.w > W || p.row + p.h > H, hit = placed.some(function (q, k) { return k !== i && p.col < q.col + q.w && q.col < p.col + p.w && p.row < q.row + q.h && q.row < p.row + p.h; });
+        if (out) issues.push(p.name + ' reaches outside the ' + W + '\u00d7' + H + ' grid');
+        if (hit) issues.push(p.name + ' overlaps another item');
+        if (out || hit) p.el.classList.add('bad');
+      });
+      var msg = g.nextElementSibling;
+      if (msg) { msg.className = 'meta gmsg' + (issues.length ? ' bad' : ''); msg.textContent = (placed.length ? 'Items reach column ' + maxc + ' of ' + W + ' and row ' + maxr + ' of ' + H + '.' : 'Empty ' + W + '\u00d7' + H + ' grid.') + (unknown ? ' ' + unknown + ' item' + (unknown === 1 ? '' : 's') + ' of unknown size (drawn as 1\u00d71).' : '') + (issues.length ? ' ' + issues.slice(0, 4).join('; ') + (issues.length > 4 ? '; ...' : '') + '.' : ''); }
+    }
+  }
   function shelterPageHtml(name, t, m, ext) {
     var seen = {};
     var fur = ids(t.get(m, 'furnitures'), 'SubResource').map(function (id) {
@@ -366,8 +403,8 @@
     var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0], id) : null; }).filter(Boolean);
     var title = function (f) { return f.name + (seen[f.name] > 1 ? ' #' + f.n : ''); };
     var cdet = function (f) {
-      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty"><button data-act="sh-add">Add</button><span class="meta amsg"></span></div>' : '';
-      return '<details' + (EDIT_ON ? ' open' : '') + '><summary>' + esc(title(f)) + ' <span class="meta">&middot; ' + (f.dims ? f.dims[0] + '&times;' + f.dims[1] + ' &middot; ' : 'size unknown &middot; ') + f.items.length + ' item' + (f.items.length === 1 ? '' : 's') + '</span></summary>' + add + itemTable(rowsHtml(f.items, true), EDIT_ON && !!f.dims) + '</details>';
+      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items has crashed the game in testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty"><button data-act="sh-add">Add</button><span class="meta amsg"></span></div>' : '';
+      return '<details' + (EDIT_ON ? ' open' : '') + '><summary>' + esc(title(f)) + ' <span class="meta">&middot; ' + (f.dims ? f.dims[0] + '&times;' + f.dims[1] + ' &middot; ' : 'size unknown &middot; ') + f.items.length + ' item' + (f.items.length === 1 ? '' : 's') + '</span></summary>' + add + (f.dims ? gridHtml(f) : '') + itemTable(rowsHtml(f.items, true), EDIT_ON && !!f.dims) + '</details>';
     };
     var ldet = loose.length ? '<details><summary>Loose items <span class="meta">&middot; ' + loose.length + ' item' + (loose.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(loose, true)) + '</details>' : '';
     return '<h2>' + esc(name) + '</h2><p class="meta">' + fur.length + ' furniture pieces &middot; ' + cont.length + ' containers &middot; ' + stored + ' items stored &middot; ' + loose.length + ' loose items</p>' +
@@ -378,7 +415,7 @@
     if (SS.src !== 'live' && !l.some(function (m) { return m.id === SS.src; })) SS.src = 'live';
     var dir = SS.src === 'live' ? saveDir : j(j(bakDir, SS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#ssrc').value = SS.src; return; }
     var shelters = [];
     try {
@@ -394,6 +431,7 @@
     $('#ssrc').value = SS.src;
     fillIcons();
     applyDefs();
+    layoutGrids();
     if (SS.edit) fillItemList();
   }
   // the list of base-game items that can be added (read from the game files)
@@ -441,7 +479,9 @@
     var q = parseInt(bar.querySelector('.aqty').value, 10), amount = def.showAmount ? (isNaN(q) ? (def.defaultAmount || 1) : Math.max(1, def.maxAmount ? Math.min(q, def.maxAmount) : q)) : def.defaultAmount;
     var cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path);
     var tb = box.querySelector('table.itm tbody'); if (!tb) return say('Nothing to add to.');
-    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    var aid = 'a' + (++AID), gridEl = box.querySelector('.cgrid');
+    if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); var rw = slot.rot ? def.size[1] : def.size[0], rh = slot.rot ? def.size[0] : def.size[1]; ne.style.left = slot.col * CELLPX + 'px'; ne.style.top = slot.row * CELLPX + 'px'; ne.style.width = rw * CELLPX + 'px'; ne.style.height = rh * CELLPX + 'px'; gridEl.appendChild(ne); }
+    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
     bar.querySelector('.aitem').value = ''; bar.querySelector('.aqty').value = '';
     say('Added at column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + '. It is saved only when you create the edited copy.');
     fillIcons();
@@ -450,11 +490,11 @@
     return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1' }; });
   }
   // a new SlotData entry, written in the game's own property order
-  function addSlot(t, e) {
+  function addSlot(t, e, before) {
     var sc = t.extFor('res://Scripts/SlotData.gd', 'Script'), ic = t.extFor('res://Scripts/ItemData.gd', 'Script'), it = t.extFor(e.path, 'Resource');
     return t.addSub([['script', 'ExtResource("' + sc + '")'], ['itemData', 'ExtResource("' + it + '")'], ['nested', 'Array[ExtResource("' + ic + '")]([])'], ['storage', 'Array[ExtResource("' + sc + '")]([])'],
       ['condition', String(e.cond)], ['amount', String(e.amount)], ['position', '0'], ['mode', '1'], ['zoom', '1'], ['chamber', 'false'], ['casing', 'false'], ['state', '""'],
-      ['gridPosition', 'Vector2(' + e.col * CELL + ', ' + e.row * CELL + ')'], ['gridRotated', e.rot ? 'true' : 'false'], ['slot', '""']]);
+      ['gridPosition', 'Vector2(' + e.col * CELL + ', ' + e.row * CELL + ')'], ['gridRotated', e.rot ? 'true' : 'false'], ['slot', '""']], 'Resource', before);
   }
 
   /* ---------- inventory editing (always written to a new snapshot) ---------- */
@@ -476,7 +516,7 @@
     var byFile = {}, out = {}, removed = 0, edited = 0, added = 0;
     edits.forEach(function (e) { (byFile[e.file] = byFile[e.file] || []).push(e); });
     for (var f of Object.keys(byFile)) {
-      var t = Tres.parse(await fs.readTextFile(j(src, f))), gone = {}, ls = null;
+      var t = Tres.parse(await fs.readTextFile(j(src, f))), gone = {}, ls = null, addedHere = false;
       ls = t.loadSteps();
       byFile[f].filter(function (e) { return !e.remove && !e.add; }).forEach(function (e) {
         var b = t.subById(e.sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
@@ -492,9 +532,10 @@
       byFile[f].filter(function (e) { return e.add; }).forEach(function (e) {
         var cb = t.subById(e.cid);
         if (!cb || gone[e.cid]) throw new Error('The container "' + e.cname + '" was not found in ' + f + ' (the save may have changed since this page was loaded)');
-        t.appendRef(cb, 'storage', 'SubResource("' + addSlot(t, e) + '")'); added++;
+        t.appendRef(cb, 'storage', 'SubResource("' + addSlot(t, e, cb) + '")'); added++; addedHere = true;
       });
       t.setLoadSteps(ls);
+      if (addedHere) { var ord = t.checkOrder(); if (ord.length) throw new Error(f + ': ' + ord[0]); }
       var bad = t.validate(); if (bad.length) throw new Error(f + ': ' + bad[0]);
       out[f] = t.serialize();
     }
@@ -566,7 +607,7 @@
     return out;
   }
   async function makeEdited(src, edits) {
-    var meta = await snapFrom(src, 'Edited: ' + edits.length + ' change' + (edits.length === 1 ? '' : 's')), data = j(j(bakDir, meta.id), 'data');
+    var meta = await snapFrom(src, 'Edited character: ' + edits.length + ' change' + (edits.length === 1 ? '' : 's')), data = j(j(bakDir, meta.id), 'data');
     for (var f of ['Character', 'World']) {
       var es = edits.filter(function (e) { return e.f === f; }); if (!es.length) continue;
       var p = j(data, f + '.tres'), t = Tres.parse(await fs.readTextFile(p)), m = t.main();
@@ -580,7 +621,7 @@
     if (ES.src !== 'live' && !l.some(function (m) { return m.id === ES.src; })) ES.src = 'live';
     var dir = ES.src === 'live' ? saveDir : j(j(bakDir, ES.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Edit</h1><p class="sub">Change values, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.</p>' +
+    var head = '<h1>Character &amp; World</h1><p class="sub">Change your character\'s meters, conditions and cat, and the world settings (day, time, difficulty, weather), then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.</p>' +
       '<div class="bar"><select id="esrc">' + opts + '</select><span class="sp"></span><button data-act="heal">Heal all</button><button data-act="mkedit" class="pri">Create edited copy</button></div>';
     var read = async function (n) { var p = j(dir, n + '.tres'); return (await fs.exists(p)) ? Tres.parse(await fs.readTextFile(p)) : null; };
     var ch, wo;
@@ -707,7 +748,7 @@
         edits.forEach(function (e) { e.raw = rawOf(e); });
         if (!(await ask('Create edited copy?', edits.map(function (e) { return e.label + ': ' + e.from + ' \u2192 ' + e.to; }).join('\n'), { ok: 'Create' }))) return;
         await makeEdited(ES.src === 'live' ? saveDir : j(j(bakDir, ES.src), 'data'), edits);
-        await ask('Edited copy created', 'Find it under Snapshots (tagged "Edited") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
+        await ask('Edited copy created', 'Find it under Snapshots (tagged "Edited character") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
       }
       else if (act === 'delauto') {
         var del = (await list()).filter(function (m) { return m.auto && m.tag !== 'Before restore'; }); if (!del.length) return;
@@ -728,14 +769,14 @@
         S1.edit = !S1.edit;
       }
       else if (act === 'sh-add') { await addToContainer(b.closest('.addbar')); return; }
-      else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) cr.remove(); return; }
+      else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) { var ge = document.querySelector('.gi[data-aid="' + cr.dataset.aid + '"]'); if (ge) ge.remove(); cr.remove(); } return; }
       else if (act === 'inv-apply' || act === 'sh-apply') {
         var shl = act === 'sh-apply', S2 = shl ? SS : IS;
         var ie = collectInvEdits().concat(shl ? collectAdds() : []); if (!ie.length) { toast('No changes to apply'); return; }
         var isrc = S2.src === 'live' ? saveDir : j(j(bakDir, S2.src), 'data'), plan = await planInv(isrc, ie);
         var lines = ie.slice(0, 14).map(function (e) { return e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')' : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
         if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
-        var eqWarn = ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '';
+        var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\n\nAdding items is experimental and has crashed the game in testing. Keep your original snapshot and test the copy before relying on it.' : '');
         var sum = [plan.added ? plan.added + ' added' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed' + ' (including anything stored inside them)' : ''].filter(Boolean).join(', ');
         if (!(await ask('Create edited copy?', lines.join('\n') + '\n\n' + sum + '.' + eqWarn, { ok: 'Create' }))) return;
         await makeInvEdited(isrc, plan, ie.length, shl ? 'shelter' : 'inventory');

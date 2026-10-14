@@ -350,9 +350,18 @@
     if (w !== h) for (row = 0; row <= H - w; row++) for (col = 0; col <= W - h; col++) if (fits(col, row, h, w)) return { col: col, row: row, rot: true };
     return null;
   }
-  var CELLPX = 36, AID = 0;
+  var CELLPX = 44, AID = 0;
+  // size and position a grid item; a rotated item gets its icon turned 90 degrees to fill the swapped box
+  function placeItem(el, col, row, sz, rot) {
+    var w = rot ? sz[1] : sz[0], h = rot ? sz[0] : sz[1], im = el.querySelector('img');
+    el.style.left = col * CELLPX + 'px'; el.style.top = row * CELLPX + 'px'; el.style.width = w * CELLPX + 'px'; el.style.height = h * CELLPX + 'px';
+    if (im) {
+      if (rot) { im.style.width = sz[0] * CELLPX + 'px'; im.style.height = sz[1] * CELLPX + 'px'; im.style.maxWidth = 'none'; im.style.flex = 'none'; im.style.transform = 'rotate(90deg)'; }
+      else { im.style.width = ''; im.style.height = ''; im.style.maxWidth = ''; im.style.flex = ''; im.style.transform = ''; }
+    }
+  }
   function gridHtml(f) {
-    return '<div class="cgrid" data-w="' + f.dims[0] + '" data-h="' + f.dims[1] + '">' + f.items.map(function (s) {
+    return '<div class="cgrid" data-w="' + (f.dims ? f.dims[0] : 0) + '" data-h="' + (f.dims ? f.dims[1] : 0) + '"' + (f.dims ? '' : ' data-est="1"') + '>' + f.items.map(function (s) {
       return '<div class="gi" data-path="' + esc(s.path) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '" data-name="' + esc(s.name) + '" title="' + esc(s.name) + '">' +
         (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</div>';
     }).join('') + '</div><p class="meta gmsg"></p>';
@@ -363,8 +372,9 @@
     if (!grids.length) return;
     var haveDefs = false; if (gameDir && !IC.fail) { try { await iconPack(); haveDefs = true; } catch (e) {} }
     for (var g of grids) {
-      var W = +g.dataset.w, H = +g.dataset.h, placed = [], issues = [], maxc = 0, maxr = 0, unknown = 0;
-      g.style.width = W * CELLPX + 'px'; g.style.height = H * CELLPX + 'px'; g.style.backgroundSize = CELLPX + 'px ' + CELLPX + 'px';
+      var est = g.dataset.est === '1', W = est ? Infinity : +g.dataset.w, H = est ? Infinity : +g.dataset.h, placed = [], issues = [], maxc = 0, maxr = 0, unknown = 0;
+      if (!est) { g.style.width = W * CELLPX + 'px'; g.style.height = H * CELLPX + 'px'; }
+      g.style.backgroundSize = CELLPX + 'px ' + CELLPX + 'px';
       var els = Array.prototype.slice.call(g.querySelectorAll('.gi'));
       for (var el of els) {
         var d = null; try { d = haveDefs && /^res:\/\/Items\//i.test(el.dataset.path || '') ? await Pck.itemDef(IC.pack, el.dataset.path) : null; } catch (e) { d = null; }
@@ -373,18 +383,19 @@
         if (isNaN(gx) || isNaN(gy)) { issues.push(nm + ' has no readable position'); el.hidden = true; continue; }
         if (gx % CELL || gy % CELL) issues.push(nm + ' is not on the 64-unit grid (x ' + gx + ', y ' + gy + ')');
         if (!known) { unknown++; el.classList.add('unk'); }
-        el.style.left = col * CELLPX + 'px'; el.style.top = row * CELLPX + 'px'; el.style.width = w * CELLPX + 'px'; el.style.height = h * CELLPX + 'px';
+        placeItem(el, col, row, sz, rot);
         placed.push({ col: col, row: row, w: w, h: h, el: el, name: nm });
         maxc = Math.max(maxc, col + w); maxr = Math.max(maxr, row + h);
       }
+      if (est) { var ew = Math.max(maxc, 2), eh = Math.max(maxr, 2); g.style.width = ew * CELLPX + 'px'; g.style.height = eh * CELLPX + 'px'; }
       placed.forEach(function (p, i) {
-        var out = p.col < 0 || p.row < 0 || p.col + p.w > W || p.row + p.h > H, hit = placed.some(function (q, k) { return k !== i && p.col < q.col + q.w && q.col < p.col + p.w && p.row < q.row + q.h && q.row < p.row + p.h; });
+        var out = !est && (p.col < 0 || p.row < 0 || p.col + p.w > W || p.row + p.h > H), hit = placed.some(function (q, k) { return k !== i && p.col < q.col + q.w && q.col < p.col + p.w && p.row < q.row + q.h && q.row < p.row + p.h; });
         if (out) issues.push(p.name + ' reaches outside the ' + W + '\u00d7' + H + ' grid');
         if (hit) issues.push(p.name + ' overlaps another item');
         if (out || hit) p.el.classList.add('bad');
       });
       var msg = g.nextElementSibling;
-      if (msg) { msg.className = 'meta gmsg' + (issues.length ? ' bad' : ''); msg.textContent = (placed.length ? 'Items reach column ' + maxc + ' of ' + W + ' and row ' + maxr + ' of ' + H + '.' : 'Empty ' + W + '\u00d7' + H + ' grid.') + (unknown ? ' ' + unknown + ' item' + (unknown === 1 ? '' : 's') + ' of unknown size (drawn as 1\u00d71).' : '') + (issues.length ? ' ' + issues.slice(0, 4).join('; ') + (issues.length > 4 ? '; ...' : '') + '.' : ''); }
+      if (msg) { msg.className = 'meta gmsg' + (issues.length ? ' bad' : ''); msg.textContent = (est ? 'Size unknown (modded furniture), so this grid is drawn from the items\' positions. ' : '') + (placed.length ? 'Items reach column ' + maxc + (est ? '' : ' of ' + W) + ' and row ' + maxr + (est ? '' : ' of ' + H) + '.' : 'Empty ' + W + '\u00d7' + H + ' grid.') + (unknown ? ' ' + unknown + ' item' + (unknown === 1 ? '' : 's') + ' of unknown size (drawn as 1\u00d71).' : '') + (issues.length ? ' ' + issues.slice(0, 4).join('; ') + (issues.length > 4 ? '; ...' : '') + '.' : ''); }
     }
   }
   function shelterPageHtml(name, t, m, ext) {
@@ -403,8 +414,8 @@
     var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0], id) : null; }).filter(Boolean);
     var title = function (f) { return f.name + (seen[f.name] > 1 ? ' #' + f.n : ''); };
     var cdet = function (f) {
-      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items has crashed the game in testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty"><button data-act="sh-add">Add</button><span class="meta amsg"></span></div>' : '';
-      return '<details' + (EDIT_ON ? ' open' : '') + '><summary>' + esc(title(f)) + ' <span class="meta">&middot; ' + (f.dims ? f.dims[0] + '&times;' + f.dims[1] + ' &middot; ' : 'size unknown &middot; ') + f.items.length + ' item' + (f.items.length === 1 ? '' : 's') + '</span></summary>' + add + (f.dims ? gridHtml(f) : '') + itemTable(rowsHtml(f.items, true), EDIT_ON && !!f.dims) + '</details>';
+      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items has crashed the game in testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><span class="meta amsg"></span></div>' : '';
+      return '<details' + (EDIT_ON ? ' open' : '') + '><summary>' + esc(title(f)) + ' <span class="meta">&middot; ' + (f.dims ? f.dims[0] + '&times;' + f.dims[1] + ' &middot; ' : 'size unknown &middot; ') + f.items.length + ' item' + (f.items.length === 1 ? '' : 's') + '</span></summary>' + add + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(f.items, true), EDIT_ON && !!f.dims) + '</div>' + (f.dims || f.items.length ? '<div class="cgwrap">' + gridHtml(f) + '</div>' : '') + '</div></details>';
     };
     var ldet = loose.length ? '<details><summary>Loose items <span class="meta">&middot; ' + loose.length + ' item' + (loose.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(loose, true)) + '</details>' : '';
     return '<h2>' + esc(name) + '</h2><p class="meta">' + fur.length + ' furniture pieces &middot; ' + cont.length + ' containers &middot; ' + stored + ' items stored &middot; ' + loose.length + ' loose items</p>' +
@@ -470,20 +481,37 @@
       if (!d || !d.ok) return say('This container holds an item whose size is unknown (for example from a mod), so nothing can be added safely.');
       var gx = parseFloat(tr.dataset.gx), gy = parseFloat(tr.dataset.gy);
       if (isNaN(gx) || isNaN(gy) || gx % CELL || gy % CELL) return say('Unexpected item layout in this container, so nothing is added.');
-      var rot = tr.dataset.rot === '1';
-      placed.push({ col: gx / CELL, row: gy / CELL, w: rot ? d.size[1] : d.size[0], h: rot ? d.size[0] : d.size[1] });
+      var rot0 = tr.dataset.rot === '1';
+      placed.push({ col: gx / CELL, row: gy / CELL, w: rot0 ? d.size[1] : d.size[0], h: rot0 ? d.size[0] : d.size[1] });
     }
     var prob = layoutProblem(W, H, placed); if (prob) return say(prob);
-    var slot = findSlot(W, H, placed, def.size[0], def.size[1]);
-    if (!slot) return say('No room left in this container for a ' + def.size[0] + '\u00d7' + def.size[1] + ' item.');
-    var q = parseInt(bar.querySelector('.aqty').value, 10), amount = def.showAmount ? (isNaN(q) ? (def.defaultAmount || 1) : Math.max(1, def.maxAmount ? Math.min(q, def.maxAmount) : q)) : def.defaultAmount;
+    // quantity: stackable items (ammo, money) = the total count, split into stacks of at most the stack limit;
+    // everything else = how many separate items to add (a magazine is added full: its rounds are its "amount")
+    var q = parseInt(bar.querySelector('.aqty').value, 10), amounts = [], cap, total, k;
+    if (def.stackable) {
+      total = isNaN(q) ? (def.defaultAmount || 1) : Math.max(1, q); cap = def.maxAmount > 0 ? def.maxAmount : total;
+      while (total > 0) { var part = Math.min(cap, total); amounts.push(part); total -= part; }
+    } else {
+      var copies = isNaN(q) ? 1 : Math.max(1, q), each = def.showAmount ? (def.defaultAmount || def.maxAmount || 1) : def.defaultAmount;
+      for (k = 0; k < copies; k++) amounts.push(each);
+    }
+    if (amounts.length > 60) return say('That would add ' + amounts.length + ' separate items; please add fewer at a time.');
+    var spots = [];
+    for (k = 0; k < amounts.length; k++) {
+      var slot = findSlot(W, H, placed, def.size[0], def.size[1]);
+      if (!slot) return say('No room: only ' + k + ' of ' + amounts.length + ' would fit in this container (each takes ' + def.size[0] + '\u00d7' + def.size[1] + ' cells). Nothing was added.');
+      spots.push(slot); placed.push({ col: slot.col, row: slot.row, w: slot.rot ? def.size[1] : def.size[0], h: slot.rot ? def.size[0] : def.size[1] });
+    }
     var cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path);
     var tb = box.querySelector('table.itm tbody'); if (!tb) return say('Nothing to add to.');
-    var aid = 'a' + (++AID), gridEl = box.querySelector('.cgrid');
-    if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); var rw = slot.rot ? def.size[1] : def.size[0], rh = slot.rot ? def.size[0] : def.size[1]; ne.style.left = slot.col * CELLPX + 'px'; ne.style.top = slot.row * CELLPX + 'px'; ne.style.width = rw * CELLPX + 'px'; ne.style.height = rh * CELLPX + 'px'; gridEl.appendChild(ne); }
-    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    var gridEl = box.querySelector('.cgrid');
+    spots.forEach(function (slot, i) {
+      var aid = 'a' + (++AID), amount = amounts[i];
+      if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
+      tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    });
     bar.querySelector('.aitem').value = ''; bar.querySelector('.aqty').value = '';
-    say('Added at column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + '. It is saved only when you create the edited copy.');
+    say('Added ' + spots.length + (spots.length === 1 ? ' item' : ' items') + (def.stackable && spots.length > 1 ? ' (stacks of up to ' + cap + ')' : '') + '. It is saved only when you create the edited copy.');
     fillIcons();
   }
   function collectAdds() {
@@ -532,7 +560,10 @@
       byFile[f].filter(function (e) { return e.add; }).forEach(function (e) {
         var cb = t.subById(e.cid);
         if (!cb || gone[e.cid]) throw new Error('The container "' + e.cname + '" was not found in ' + f + ' (the save may have changed since this page was loaded)');
-        t.appendRef(cb, 'storage', 'SubResource("' + addSlot(t, e, cb) + '")'); added++; addedHere = true;
+        var nid = addSlot(t, e, cb);
+        if (t.get(cb, 'storage') === undefined) t.insert(cb, 'storage', 'Array[ExtResource("' + t.extFor('res://Scripts/SlotData.gd', 'Script') + '")]([SubResource("' + nid + '")])');
+        else t.appendRef(cb, 'storage', 'SubResource("' + nid + '")');
+        added++; addedHere = true;
       });
       t.setLoadSteps(ls);
       if (addedHere) { var ord = t.checkOrder(); if (ord.length) throw new Error(f + ': ' + ord[0]); }
@@ -680,7 +711,12 @@
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
-      '<div class="set"><h4>About</h4><p class="nb"><b>Vostok Quartermaster</b> v' + esc(APP_VER) + '</p><p class="nb">Back up, repair, inspect and edit your Road to Vostok saves. Made for Build 2 saves.</p><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster">GitHub</button> <button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster/issues">Report a problem</button><p class="mt nb">' + updStatus() + '</p><button data-act="chkupd">Check for updates</button>' + (updAvail() ? ' <button class="pri" data-act="open-url" data-url="' + esc(updUrl()) + '">View release</button>' : '') + '<p class="mt nb"><label><input type="checkbox" id="updchk" ' + (localStorage.getItem('updcheck') === '0' ? '' : 'checked') + '> Check for updates on startup</label><br><span class="meta">This only asks GitHub for the latest release number. Nothing is downloaded or installed.</span></p><p class="mt nb">Made with ❤️ by PR0Gorib</p><p class="mt nb">Unofficial tool. Not affiliated with the Road to Vostok Ltd. Item icons and trader portraits are read from your own game files when needed and are never stored.</p></div>';
+      '<div class="set about"><h4>About</h4>' +
+      '<div class="ab-head"><div class="ab-name">Vostok Quartermaster <span class="tag">v' + esc(APP_VER) + '</span></div><div class="meta">Back up, repair, inspect and edit your Road to Vostok saves. Made for Build 2 saves.</div></div>' +
+      '<div class="ab-row"><div class="ab-label">Updates</div><div class="ab-body"><div class="ab-line">' + updStatus() + '</div><div class="ab-line"><button data-act="chkupd">Check for updates</button>' + (updAvail() ? '<button class="pri" data-act="open-url" data-url="' + esc(updUrl()) + '">View release</button>' : '') + '</div>' +
+      '<label class="ab-check"><input type="checkbox" id="updchk" ' + (localStorage.getItem('updcheck') === '0' ? '' : 'checked') + '> Check for updates on startup</label><div class="meta">This only asks GitHub for the latest release number. Nothing is downloaded or installed.</div></div></div>' +
+      '<div class="ab-row"><div class="ab-label">Links</div><div class="ab-body"><div class="ab-line"><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster">GitHub</button><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster/issues">Report a problem</button></div></div></div>' +
+      '<div class="ab-foot"><div>Made with \u2764\ufe0f by PR0Gorib</div><div class="meta">Unofficial tool. Not affiliated with the Road to Vostok Ltd.<br>Item icons and trader portraits are read from your own game files when needed and are never stored.</div></div></div>';
   }
   function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'shelter' ? renderShelter() : page === 'traders' ? renderTraders() : page === 'edit' ? renderEdit() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
 
@@ -787,7 +823,10 @@
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
       else if (act === 'open-bak') { await fs.mkdir(bakDir, { recursive: true }); return T.opener.revealItemInDir(bakDir); }
-    } catch (e) { toast('Error: ' + e); if (act === 'mkedit') return; }
+    } catch (e) {
+      if (act === 'inv-apply' || act === 'sh-apply') { await ask('Could not create the copy', String(e && e.message || e) + '\n\nNothing was changed. Your edits on this page are still here.', { ok: 'OK' }); return; }
+      toast('Error: ' + e); if (act === 'mkedit') return;
+    }
     render();
   });
   document.addEventListener('change', function (ev) {

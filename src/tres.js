@@ -220,12 +220,15 @@
     this.blocks.splice(at, 0, blk);
     return id;
   };
-  // Adds a sub_resource right before the main [resource]. props = [[key, rawValue], ...]. Returns its id.
-  Tres.prototype.addSub = function (props, type) {
+  // Adds a sub_resource. Godot needs a sub_resource to be defined BEFORE anything that references it, so pass the block
+  // that will reference it as `before` (it is then inserted right in front of it); without it, it goes before the main [resource].
+  // props = [[key, rawValue], ...]. Returns its id.
+  Tres.prototype.addSub = function (props, type, before) {
     var id = this.newSubId(), line = '[sub_resource type="' + (type || 'Resource') + '" id="' + id + '"]';
     var lines = [line]; props.forEach(function (p) { lines.push(p[0] + ' = ' + p[1]); }); lines.push('');
     var blk = { kind: 'sub_resource', lines: lines, attrs: parseAttrs(line) };
     var m = this.main(), at = m ? this.blocks.indexOf(m) : this.blocks.length;
+    if (before && this.blocks.indexOf(before) >= 0) at = this.blocks.indexOf(before);
     this.blocks.splice(at, 0, blk);
     return id;
   };
@@ -277,6 +280,19 @@
       prev = k;
     }
     return added;
+  };
+
+  /* ---------- load order check ---------- */
+  // Godot loads the file top to bottom, so a SubResource("x") may only be used after [sub_resource id="x"] has appeared.
+  Tres.prototype.checkOrder = function () {
+    var self = this, defined = {}, problems = [];
+    this.blocks.forEach(function (b) {
+      if (b.kind === 'sub_resource' || b.kind === 'resource') {
+        self.blockRefs(b, 'SubResource').forEach(function (id) { if (!defined[id]) problems.push('SubResource("' + id + '") is used in ' + (b.attrs.id ? b.attrs.id : b.kind) + ' before it is defined'); });
+      }
+      if (b.kind === 'sub_resource') defined[b.attrs.id] = true;
+    });
+    return problems;
   };
 
   /* ---------- integrity check ---------- */

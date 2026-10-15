@@ -71,7 +71,7 @@
     await copyDir(saveDir, data, true);
     var meta = { id: id, tag: tag || '', auto: !!auto, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
     await fs.writeTextFile(j(dir, 'snapshot.json'), JSON.stringify(meta));
-    if (auto) { var old = (await list()).filter(function (m) { return m.auto; }).slice(KEEP_AUTO); for (var m of old) await fs.remove(j(bakDir, m.id), { recursive: true }); }
+    if (auto) { var old = (await list()).filter(function (m) { return m.auto && m.tag !== 'Before restore'; }).slice(KEEP_AUTO); for (var m of old) await fs.remove(j(bakDir, m.id), { recursive: true }); }
     return meta;
   }
   async function restore(id) {
@@ -623,7 +623,7 @@
     var f = function (n) { return Number.isInteger(n) ? n.toFixed(1) : String(+n.toFixed(4)); };
     if (e.t === 'num') { var n = parseFloat(e.v); if (isNaN(n)) throw new Error(e.label + ' is not a number'); return f(Math.min(100, Math.max(0, n))); }
     if (e.t === 'int') { var i = parseInt(e.v, 10); if (isNaN(i) || i < 1) throw new Error(e.label + ' must be 1 or more'); return String(i); }
-    if (e.t === 'time') { var p = String(e.v).split(':'), h = parseInt(p[0], 10), mi = parseInt(p[1], 10); if (isNaN(h) || isNaN(mi)) throw new Error('Time is not valid'); return f(h * 100 + mi * 100 / 60); }
+    if (e.t === 'time') { var p = String(e.v).split(':'), h = parseInt(p[0], 10), mi = parseInt(p[1], 10); if (isNaN(h) || isNaN(mi)) throw new Error('Time is not valid'); var tv = h * 100 + mi * 100 / 60; return Number.isInteger(tv) ? f(tv) : String(Math.ceil(tv * 10000 - 1e-9) / 10000); }
     throw new Error('Unknown field type');
   }
   function collectEdits() {
@@ -763,7 +763,7 @@
     try {
       if (act === 'backup') { var tag = await ask('Back up now', 'Add a tag to find it later (optional).', { input: true, ok: 'Back up' }); if (tag === null) return; await snap(tag, false); toast('Snapshot saved'); }
       else if (act === 'restore') { if (!(await ask('Restore this snapshot?', 'Close Road to Vostok first. Your current save is backed up automatically, then replaced with this snapshot.', { ok: 'Restore' }))) return; await restore(id); toast('Snapshot restored'); }
-      else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag, ok: 'Save' }); if (t === null) return;
+      else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag || true, ok: 'Save' }); if (t === null) return;
         var c = cleanName(t), nid = id;
         if (c && c.toLowerCase() !== id.toLowerCase()) {
           nid = await uniqueName(c);

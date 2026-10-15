@@ -356,7 +356,7 @@
     var w = rot ? sz[1] : sz[0], h = rot ? sz[0] : sz[1], im = el.querySelector('img');
     el.style.left = col * CELLPX + 'px'; el.style.top = row * CELLPX + 'px'; el.style.width = w * CELLPX + 'px'; el.style.height = h * CELLPX + 'px';
     if (im) {
-      if (rot) { im.style.width = sz[0] * CELLPX + 'px'; im.style.height = sz[1] * CELLPX + 'px'; im.style.maxWidth = 'none'; im.style.flex = 'none'; im.style.transform = 'rotate(90deg)'; }
+      if (rot) { im.style.width = sz[0] * CELLPX + 'px'; im.style.height = sz[1] * CELLPX + 'px'; im.style.maxWidth = 'none'; im.style.flex = 'none'; im.style.transform = 'rotate(-90deg)'; }
       else { im.style.width = ''; im.style.height = ''; im.style.maxWidth = ''; im.style.flex = ''; im.style.transform = ''; }
     }
   }

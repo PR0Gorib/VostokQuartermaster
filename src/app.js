@@ -68,14 +68,31 @@
     var n = new Date(), id = await folderFor(tag, auto, n);
     var dir = j(bakDir, id), data = j(dir, 'data');
     busyUntil = Date.now() + 6000;
-    await copyDir(saveDir, data, true);
-    var meta = { id: id, tag: tag || '', auto: !!auto, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
-    await fs.writeTextFile(j(dir, 'snapshot.json'), JSON.stringify(meta));
+    var meta;
+    try {
+      await copyDir(saveDir, data, true);
+      meta = { id: id, tag: tag || '', auto: !!auto, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
+      await fs.writeTextFile(j(dir, 'snapshot.json'), JSON.stringify(meta));
+    } catch (e) { try { await fs.remove(dir, { recursive: true }); } catch (_) { /* leave it */ } throw e; }
     if (auto) { var old = (await list()).filter(function (m) { return m.auto && m.tag !== 'Before restore'; }).slice(KEEP_AUTO); for (var m of old) await fs.remove(j(bakDir, m.id), { recursive: true }); }
     return meta;
   }
+  var restoreStarted = false;
+  // files that Restore would delete or overwrite but that Windows has marked Read-only (both would fail)
+  async function roAll(dir, out) { for (var e of await fs.readDir(dir)) { var p = j(dir, e.name); if (e.isDirectory) await roAll(p, out); else if ((await fs.stat(p)).readonly === true) out.push(p); } }
+  async function roOver(src, dst, out) { for (var e of await fs.readDir(src)) { var d = j(dst, e.name); if (!(await fs.exists(d))) continue; if (e.isDirectory) await roOver(j(src, e.name), d, out); else if ((await fs.stat(d)).readonly === true) out.push(d); } }
   async function restore(id) {
+    restoreStarted = false;
+    var dataDir = j(j(bakDir, id), 'data'), ro = [], have = new Set((await fs.readDir(dataDir)).map(function (e) { return e.name; }));
+    for (var se of await fs.readDir(saveDir)) {
+      if (skipped(se.name)) continue;
+      var sp = j(saveDir, se.name);
+      if (!have.has(se.name)) { if (se.isDirectory) await roAll(sp, ro); else if ((await fs.stat(sp)).readonly === true) ro.push(sp); }
+    }
+    await roOver(dataDir, saveDir, ro);
+    if (ro.length) { var er = new Error('readonly'); er.ro = ro; throw er; }
     await snap('Before restore', true);
+    restoreStarted = true;
     var data = j(j(bakDir, id), 'data'), keep = new Set((await fs.readDir(data)).map(function (e) { return e.name; }));
     busyUntil = Date.now() + 8000;
     for (var e of await fs.readDir(saveDir)) if (!keep.has(e.name) && !skipped(e.name)) await fs.remove(j(saveDir, e.name), { recursive: true });
@@ -146,9 +163,12 @@
   async function snapFrom(src, tag) {
     var n = new Date(), id = await folderFor(tag, false, n);
     var dir = j(bakDir, id), data = j(dir, 'data');
-    await copyDir(src, data, true);
-    var meta = { id: id, tag: tag, auto: false, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
-    await fs.writeTextFile(j(dir, 'snapshot.json'), JSON.stringify(meta));
+    var meta;
+    try {
+      await copyDir(src, data, true);
+      meta = { id: id, tag: tag, auto: false, created: n.toISOString(), size: await dirSize(data), files: (await fs.readDir(data)).length };
+      await fs.writeTextFile(j(dir, 'snapshot.json'), JSON.stringify(meta));
+    } catch (e) { try { await fs.remove(dir, { recursive: true }); } catch (_) { /* leave it */ } throw e; }
     return meta;
   }
   async function cleanTo(src, tag, chosen) {
@@ -173,7 +193,7 @@
     var srcDir = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data');
     if (!(await fs.exists(srcDir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; return; }
     try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(niceErr(e)) + '<br><br><button data-act="pickgame" class="pri">Choose game folder again</button>' + (RS.src !== 'live' ? ' <button data-act="srclive">Use current save folder</button>' : '') + '</div>'; return; }
-    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var rows = mods.map(function (m) {
       return '<label class="snap"><div><h4><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> ' + esc(m.name) + '<span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></h4>' +
         '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + (m.stored ? ' (+' + m.stored + ' stored inside)' : '') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' mod data reference' + (m.other === 1 ? '' : 's') + ' (the mod&rsquo;s own data, not items)' : '') + '</div></div></label>';
@@ -205,7 +225,7 @@
     if (IC.busy) return IC.busy;
     IC.busy = (async function () {
       try {
-        var f = (await fs.readDir(gameDir)).filter(function (e) { return !e.isDirectory && /\.pck$/i.test(e.name); })[0];
+        var pcks = (await fs.readDir(gameDir)).filter(function (e) { return !e.isDirectory && /\.pck$/i.test(e.name); }), f = pcks.filter(function (e) { return /^rtv\.pck$/i.test(e.name); })[0] || pcks[0];
         if (!f) throw new Error('No .pck file found in the game folder');
         var p = j(gameDir, f.name), rdr = pckReader(p, (await fs.stat(p)).size);
         IC.pack = await Pck.open(rdr); IC.idx = Pck.iconIndex(IC.pack); IC.close = rdr.close;
@@ -214,7 +234,7 @@
     })();
     return IC.busy;
   }
-  function niceErr(e) { var m = String(e && e.message || e); if (/cannot find the path|os error 3|No such file/i.test(m)) return 'the game folder was not found at this location, so choose it again'; return /forbidden path|not allowed on the scope/i.test(m) ? 'the app no longer has permission to read the game folder (it is not remembered between launches), so choose the folder again' : m; }
+  function niceErr(e) { var m = String(e && e.message || e); if (/cannot find the path|os error 3|No such file/i.test(m)) return 'the game folder was not found at this location, so choose it again'; if (/os error 5|access is denied|permission denied/i.test(m)) return 'Windows denied access (a file may be Read-only or in use by another program): ' + m; return /forbidden path|not allowed on the scope/i.test(m) ? 'the app no longer has permission to read the game folder (it is not remembered between launches), so choose the folder again' : m; }
   function iconReset() { try { if (IC.close) IC.close(); } catch (e) {} IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null }; }
   function toUrl(tex) { var c = document.createElement('canvas'); c.width = tex.width; c.height = tex.height; c.getContext('2d').putImageData(new ImageData(tex.rgba, tex.width, tex.height), 0, 0); return c.toDataURL('image/png'); }
   async function fillIcons() {
@@ -305,7 +325,7 @@
     var v = $('#view'), l = await list();
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
-    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, or tick Remove, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#isrc').value = IS.src; return; }
     var chars = '';
@@ -414,7 +434,7 @@
     var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0], id) : null; }).filter(Boolean);
     var title = function (f) { return f.name + (seen[f.name] > 1 ? ' #' + f.n : ''); };
     var cdet = function (f) {
-      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items has crashed the game in testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><span class="meta amsg"></span></div>' : '';
+      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items worked in testing, but it needs more testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><span class="meta amsg"></span></div>' : '';
       return '<details' + (EDIT_ON ? ' open' : '') + '><summary>' + esc(title(f)) + ' <span class="meta">&middot; ' + (f.dims ? f.dims[0] + '&times;' + f.dims[1] + ' &middot; ' : 'size unknown &middot; ') + f.items.length + ' item' + (f.items.length === 1 ? '' : 's') + '</span></summary>' + add + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(f.items, true), EDIT_ON && !!f.dims) + '</div>' + (f.dims || f.items.length ? '<div class="cgwrap">' + gridHtml(f) + '</div>' : '') + '</div></details>';
     };
     var ldet = loose.length ? '<details><summary>Loose items <span class="meta">&middot; ' + loose.length + ' item' + (loose.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(loose, true)) + '</details>' : '';
@@ -425,7 +445,7 @@
     var v = $('#view'), l = await list();
     if (SS.src !== 'live' && !l.some(function (m) { return m.id === SS.src; })) SS.src = 'live';
     var dir = SS.src === 'live' ? saveDir : j(j(bakDir, SS.src), 'data');
-    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#ssrc').value = SS.src; return; }
     var shelters = [];
@@ -601,7 +621,7 @@
     var v = $('#view'), l = await list();
     if (TS.src !== 'live' && !l.some(function (m) { return m.id === TS.src; })) TS.src = 'live';
     var dir = TS.src === 'live' ? saveDir : j(j(bakDir, TS.src), 'data'), f = j(dir, 'Traders.tres');
-    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var head = '<h1>Traders</h1><p class="sub">Completed and in-progress tasks. Read-only: nothing here changes your save.</p><div class="bar"><select id="tsrc">' + opts + '</select></div>';
     try { v.innerHTML = head + ((await fs.exists(f)) ? tradersHtml(Tres.parse(await fs.readTextFile(f))) : '<div class="empty">No Traders.tres in this save.</div>'); }
     catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; }
@@ -651,7 +671,7 @@
     var v = $('#view'), l = await list();
     if (ES.src !== 'live' && !l.some(function (m) { return m.id === ES.src; })) ES.src = 'live';
     var dir = ES.src === 'live' ? saveDir : j(j(bakDir, ES.src), 'data');
-    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + m.id + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     var head = '<h1>Character &amp; World</h1><p class="sub">Change your character\'s meters, conditions and cat, and the world settings (day, time, difficulty, weather), then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.</p>' +
       '<div class="bar"><select id="esrc">' + opts + '</select><span class="sp"></span><button data-act="heal">Heal all</button><button data-act="mkedit" class="pri">Create edited copy</button></div>';
     var read = async function (n) { var p = j(dir, n + '.tres'); return (await fs.exists(p)) ? Tres.parse(await fs.readTextFile(p)) : null; };
@@ -696,7 +716,7 @@
     var rows = l.map(function (m) {
       return '<div class="snap"><div><h4>' + esc(m.tag || 'Snapshot') + '<span class="tag ' + (m.auto ? '' : 'man') + '">' + (m.auto ? 'Auto' : 'Manual') + '</span>' + (m.world && m.world.difficulty === '3' ? '<span class="tag iron">Ironman</span>' : '') + '</h4>' +
         (m.world ? '<div class="meta wi">' + fmtWorld(m.world) + '</div>' : '') + '<div class="meta">' + new Date(m.created).toLocaleString() + ' &middot; ' + m.files + ' items &middot; ' + fmtSize(m.size) + '</div></div>' +
-        '<div class="acts" data-id="' + m.id + '"><button data-act="restore" class="pri">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
+        '<div class="acts" data-id="' + esc(m.id) + '"><button data-act="restore" class="pri">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
     }).join('');
     var autoN = l.filter(function (m) { return m.auto && m.tag !== 'Before restore'; }).length;
     v.innerHTML = head + '<div class="bar"><button data-act="backup" class="pri">Back up now</button>' + (autoN ? '<button data-act="delauto" class="dng">Delete ' + autoN + ' automatic</button>' : '') + '<span class="sp"></span><span class="meta">' + l.length + ' snapshot' + (l.length === 1 ? '' : 's') + '</span></div>' +
@@ -757,7 +777,7 @@
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
     var nb = ev.target.closest('#nav button[data-page]');
-    if (nb) { page = nb.dataset.page; IS.edit = false; SS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
+    if (nb) { page = nb.dataset.page; if (page !== 'settings') IC.fail = ''; IS.edit = false; SS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
     var b = ev.target.closest('[data-act]'); if (!b) return;
     var act = b.dataset.act, id = b.parentElement.dataset.id;
     try {
@@ -812,7 +832,7 @@
         var isrc = S2.src === 'live' ? saveDir : j(j(bakDir, S2.src), 'data'), plan = await planInv(isrc, ie);
         var lines = ie.slice(0, 14).map(function (e) { return e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')' : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
         if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
-        var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\n\nAdding items is experimental and has crashed the game in testing. Keep your original snapshot and test the copy before relying on it.' : '');
+        var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\n\nAdding items is experimental. It has worked in testing, but keep your original snapshot and test the copy before relying on it.' : '');
         var sum = [plan.added ? plan.added + ' added' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed' + ' (including anything stored inside them)' : ''].filter(Boolean).join(', ');
         if (!(await ask('Create edited copy?', lines.join('\n') + '\n\n' + sum + '.' + eqWarn, { ok: 'Create' }))) return;
         await makeInvEdited(isrc, plan, ie.length, shl ? 'shelter' : 'inventory');
@@ -825,6 +845,11 @@
       else if (act === 'open-bak') { await fs.mkdir(bakDir, { recursive: true }); return T.opener.revealItemInDir(bakDir); }
     } catch (e) {
       if (act === 'inv-apply' || act === 'sh-apply') { await ask('Could not create the copy', String(e && e.message || e) + '\n\nNothing was changed. Your edits on this page are still here.', { ok: 'OK' }); return; }
+      if (act === 'restore') {
+        var rl = e && e.ro ? e.ro.slice(0, 8).map(function (f) { return f.split(/[\\/]/).slice(-2).join('\\'); }).join('\n') + (e.ro.length > 8 ? '\n...and ' + (e.ro.length - 8) + ' more' : '') : '';
+        await ask('Restore failed', e && e.ro ? 'Nothing was changed. Windows has these files marked Read-only, so they cannot be replaced:\n\n' + rl + '\n\nRight-click each file, choose Properties, untick Read-only, then restore again.' : (restoreStarted ? 'Restore stopped part-way, so your save may be partly restored.\n\n' : 'Nothing was changed.\n\n') + niceErr(e) + (restoreStarted ? '\n\nClose the game and any program using the save folder, then try again. A copy of your save from before the restore is under Snapshots (tagged "Before restore").' : ''), { ok: 'OK' });
+        render(); return;
+      }
       toast('Error: ' + e); if (act === 'mkedit') return;
     }
     render();

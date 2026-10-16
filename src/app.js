@@ -434,7 +434,7 @@
     var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0], id) : null; }).filter(Boolean);
     var title = function (f) { return f.name + (seen[f.name] > 1 ? ' #' + f.n : ''); };
     var cdet = function (f) {
-      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items worked in testing, but it needs more testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><span class="meta amsg"></span></div>' : '';
+      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items worked in testing, but it needs more testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>' : '';
       return '<details' + (EDIT_ON ? ' open' : '') + '><summary>' + esc(title(f)) + ' <span class="meta">&middot; ' + (f.dims ? f.dims[0] + '&times;' + f.dims[1] + ' &middot; ' : 'size unknown &middot; ') + f.items.length + ' item' + (f.items.length === 1 ? '' : 's') + '</span></summary>' + add + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(f.items, true), EDIT_ON && !!f.dims) + '</div>' + (f.dims || f.items.length ? '<div class="cgwrap">' + gridHtml(f) + '</div>' : '') + '</div></details>';
     };
     var ldet = loose.length ? '<details><summary>Loose items <span class="meta">&middot; ' + loose.length + ' item' + (loose.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(loose, true)) + '</details>' : '';
@@ -534,6 +534,60 @@
     say('Added ' + spots.length + (spots.length === 1 ? ' item' : ' items') + (def.stackable && spots.length > 1 ? ' (stacks of up to ' + cap + ')' : '') + '. It is saved only when you create the edited copy.');
     fillIcons();
   }
+  var QOPTS = '';
+  function questOptions() {
+    if (!QOPTS) {
+      QOPTS = '<option value="">Task rewards...</option>' + Object.keys(QUEST_STEMS).map(function (k) {
+        return '<optgroup label="' + esc(TRADERS[k][0]) + '">' + questsOf(k).map(function (q, i) { return '<option value="' + k + '|' + i + '">' + esc(q.name) + '</option>'; }).join('') + '</optgroup>';
+      }).join('');
+    }
+    return QOPTS;
+  }
+  // Adds every reward item of one trader task to this container (all or nothing). Furniture rewards cannot go in a container and are skipped.
+  async function addRewards(bar) {
+    var msg = bar.querySelector('.amsg'), say = function (s) { msg.textContent = s; };
+    say('');
+    var sv = bar.querySelector('.atask').value; if (!sv) return say('Choose a task first.');
+    if (!gameDir) return say('Set the game folder in Settings first: rewards and item sizes come from the game files.');
+    try { await iconPack(); } catch (e) { return say('Could not read the game files: ' + niceErr(e)); }
+    var parts = sv.split('|'), q = questsOf(parts[0])[+parts[1]], td = await Pck.taskDef(IC.pack, q.path);
+    if (!td || !td.ok) return say('Could not read this task from the game files.');
+    var rew = td.receive.filter(function (p) { return /^res:\/\/Items\//i.test(p); }), skipped = td.receive.length - rew.length;
+    if (!rew.length) return say('"' + q.name + '" only rewards furniture, which cannot be put in a container.');
+    var W = +bar.dataset.cw, H = +bar.dataset.ch, box = bar.parentNode, placed = [];
+    var rows = Array.prototype.slice.call(box.querySelectorAll('tr[data-cid], tr.ea'));
+    for (var tr of rows) {
+      var d0 = tr.dataset.path ? await Pck.itemDef(IC.pack, tr.dataset.path) : null;
+      if (!d0 || !d0.ok) return say('This container holds an item whose size is unknown (for example from a mod), so nothing can be added safely.');
+      var gx = parseFloat(tr.dataset.gx), gy = parseFloat(tr.dataset.gy);
+      if (isNaN(gx) || isNaN(gy) || gx % CELL || gy % CELL) return say('Unexpected item layout in this container, so nothing is added.');
+      var rot0 = tr.dataset.rot === '1';
+      placed.push({ col: gx / CELL, row: gy / CELL, w: rot0 ? d0.size[1] : d0.size[0], h: rot0 ? d0.size[0] : d0.size[1] });
+    }
+    var prob = layoutProblem(W, H, placed); if (prob) return say(prob);
+    var plan = [];
+    for (var i = 0; i < rew.length; i++) {
+      var def = await Pck.itemDef(IC.pack, rew[i]);
+      if (!def || !def.ok) return say('Could not read the definition of ' + Tres.itemName(rew[i]) + ' from the game files. Nothing was added.');
+      var slot = findSlot(W, H, placed, def.size[0], def.size[1]);
+      if (!slot) return say('No room: only ' + i + ' of ' + rew.length + ' reward items would fit in this container. Nothing was added.');
+      placed.push({ col: slot.col, row: slot.row, w: slot.rot ? def.size[1] : def.size[0], h: slot.rot ? def.size[0] : def.size[1] });
+      var amount = def.stackable ? Math.min(def.defaultAmount || 1, def.maxAmount > 0 ? def.maxAmount : (def.defaultAmount || 1)) : (def.showAmount ? (def.defaultAmount || def.maxAmount || 1) : def.defaultAmount);
+      plan.push({ path: rew[i], def: def, slot: slot, amount: amount });
+    }
+    var tb = box.querySelector('table.itm tbody'); if (!tb) return say('Nothing to add to.');
+    var gridEl = box.querySelector('.cgrid');
+    plan.forEach(function (e) { addNewRow(bar, tb, gridEl, e.path, e.def, e.slot, e.amount); });
+    bar.querySelector('.atask').value = '';
+    say('Added ' + plan.length + (plan.length === 1 ? ' reward item' : ' reward items') + ' for "' + q.name + '"' + (skipped ? ' (' + skipped + ' furniture reward' + (skipped === 1 ? '' : 's') + ' skipped)' : '') + '. It is saved only when you create the edited copy.');
+    fillIcons();
+  }
+  // one new item: its grid box and its table row (same markup as addToContainer)
+  function addNewRow(bar, tb, gridEl, path, def, slot, amount) {
+    var aid = 'a' + (++AID), cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path);
+    if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
+    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+  }
   function collectAdds() {
     return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1' }; });
   }
@@ -622,12 +676,12 @@
     var rows = qs.map(function (q, i) {
       var st = done.indexOf(q.name) !== -1 ? 'done' : np[q.path] ? 'prog' : 'none';
       if (st === 'done') n++;
-      return '<tr><td>' + esc(q.name) + '</td><td><select data-w="q" data-k="' + k + '" data-i="' + i + '" data-init="' + st + '">' + ['none', 'prog', 'done'].map(function (v) { return '<option value="' + v + '"' + (v === st ? ' selected' : '') + '>' + QSTATE[v] + '</option>'; }).join('') + '</select></td></tr>';
+      return '<tr><td>' + esc(q.name) + '</td><td class="qi" data-qp="' + esc(q.path) + '"></td><td><select data-w="q" data-k="' + k + '" data-i="' + i + '" data-init="' + st + '">' + ['none', 'prog', 'done'].map(function (v) { return '<option value="' + v + '"' + (v === st ? ' selected' : '') + '>' + QSTATE[v] + '</option>'; }).join('') + '</select></td></tr>';
     }).join('');
     var other = done.filter(function (x) { return !qs.some(function (q) { return q.name === x; }); });
     return '<div class="snap"><div class="tw">' + pic + '<div><h4>' + esc(meta[0]) + '<span class="tag qcount' + (n ? ' man' : '') + '">' + n + ' / ' + qs.length + ' tasks done</span><span class="tag qtax" data-base="' + meta[2] + '" title="Base tax, minus a tenth of it for every task done.">Tax ' + Math.round(meta[2] * Math.max(0, 1 - n / qs.length)) + '%</span></h4>' +
       '<div class="qbar"><button data-act="tr-all" data-to="done">Complete all</button><button data-act="tr-all" data-to="none">Reset all</button></div>' +
-      '<table class="itm"><thead><tr><th>Task</th><th>State</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+      '<table class="itm"><thead><tr><th>Task</th><th>Needs \u2192 Reward</th><th>State</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       (other.length ? '<div class="meta">Other completed tasks (not editable here): ' + other.map(esc).join(', ') + '</div>' : '') + '</div></div></div>';
   }
   function qUpdate(card) {
@@ -694,6 +748,25 @@
     catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; }
     $('#tsrc').value = TS.src;
     fillIcons();
+    if (TS.edit) fillQuestInfo();
+  }
+  // "Needs -> Reward" text for each task row, read from the game files
+  function itemList(paths) {
+    var n = {}, order = [];
+    paths.forEach(function (p) { if (!n[p]) { n[p] = 0; order.push(p); } n[p]++; });
+    return order.map(function (p) {
+      var nm = Tres.itemName(p).replace(/ F$/, '') + (/^res:\/\/Items\//i.test(p) ? '' : ' (furniture)');
+      return esc(nm) + (n[p] > 1 ? ' \u00d7' + n[p] : '');
+    }).join(', ');
+  }
+  async function fillQuestInfo() {
+    var cells = Array.prototype.slice.call(document.querySelectorAll('#view td.qi'));
+    if (!gameDir) { cells.forEach(function (c) { c.textContent = 'Set the game folder in Settings to see this.'; }); return; }
+    try { await iconPack(); } catch (e) { cells.forEach(function (c) { c.textContent = 'Could not read the game files.'; }); return; }
+    for (var c of cells) {
+      var d = await Pck.taskDef(IC.pack, c.dataset.qp);
+      c.innerHTML = d && d.ok ? '<b>Needs:</b> ' + (itemList(d.deliver) || '-') + '<br><b>Reward:</b> ' + (itemList(d.receive) || '-') : 'Not found in the game files.';
+    }
   }
 
 
@@ -892,6 +965,7 @@
         S1.edit = !S1.edit;
       }
       else if (act === 'sh-add') { await addToContainer(b.closest('.addbar')); return; }
+      else if (act === 'sh-reward') { await addRewards(b.closest('.addbar')); return; }
       else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) { var ge = document.querySelector('.gi[data-aid="' + cr.dataset.aid + '"]'); if (ge) ge.remove(); cr.remove(); } return; }
       else if (act === 'inv-apply' || act === 'sh-apply') {
         var shl = act === 'sh-apply', S2 = shl ? SS : IS;

@@ -245,7 +245,7 @@
         var k = r.u32();
         if (k === 0) return null;
         if (k === 1) { r.str(); return r.str(); }
-        if (k === 2 || k === 3) { r.u32(); return '<resource>'; }
+        if (k === 2 || k === 3) { var ri = r.u32(); return k === 3 && res && res.exts[ri] ? { ext: res.exts[ri].path } : { sub: ri }; }
         throw new Error('unknown object kind ' + k);
       }
       case 26: { n = r.u32() & 0x7fffffff; if (n > 100000) throw new Error('dictionary size'); for (i = 0; i < n; i++) { readVariant(r, res); readVariant(r, res); } return '<dictionary>'; }
@@ -314,7 +314,29 @@
     pack._defs[p] = def; return def;
   }
 
-  var Pck = { open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, itemDef: itemDef, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
+  // taskPath: res://Traders/Doctor/Tasks/01_Nasty_Draft.tres. Returns what the task asks for (deliver) and gives (receive) as res:// item paths.
+  async function taskDef(pack, taskPath) {
+    var p = String(taskPath).replace(/^res:\/\//, '');
+    if (!pack.has(p + '.remap')) return null;
+    pack._tasks = pack._tasks || {};
+    if (pack._tasks[p]) return pack._tasks[p];
+    var def;
+    try {
+      var m = /path="res:\/\/([^"]+)"/.exec(str(await pack.read(p + '.remap')));
+      if (!m || !pack.has(m[1])) def = { ok: false, error: 'task file not found' };
+      else {
+        var res = parseRes(await pack.read(m[1])), o = res.objects.filter(function (x) { return /^res:\/\//.test(x.path); })[0] || res.objects[res.objects.length - 1];
+        if (!o || o.error) def = { ok: false, error: o ? o.error : 'no object' };
+        else {
+          var refs = function (a) { return (Array.isArray(a) ? a : []).map(function (x) { return x && x.ext ? x.ext : null; }).filter(Boolean); };
+          def = { ok: true, name: o.props.name || '', trader: o.props.trader || '', difficulty: o.props.difficulty || '', deliver: refs(o.props.deliver), receive: refs(o.props.receive) };
+        }
+      }
+    } catch (e) { def = { ok: false, error: String(e && e.message || e) }; }
+    pack._tasks[p] = def; return def;
+  }
+
+  var Pck = { taskDef: taskDef, open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, itemDef: itemDef, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
   root.Pck = Pck;
   if (typeof module !== 'undefined' && module.exports) module.exports = Pck;
 })(typeof window !== 'undefined' ? window : globalThis);

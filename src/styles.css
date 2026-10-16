@@ -77,3 +77,4 @@ tr.ea td{background:#1b2a22}
 .ab-check{display:flex;gap:8px;align-items:center;cursor:pointer}
 .ab-foot{border-top:1px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:4px}
 .about .meta{color:var(--mut);font-size:12.5px}
+.qbar{display:flex;gap:8px;margin:8px 0}

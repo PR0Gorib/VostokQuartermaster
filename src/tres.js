@@ -241,6 +241,30 @@
     else if (/\]\)\s*$/.test(line)) block.lines[i] = line.replace(/\]\)\s*$/, ', ' + token + '])');
     else throw new Error('Unexpected array format in ' + key);
   };
+  // Removes a token such as ExtResource("5") from an array property's contents (not from its type, Array[ExtResource("2")]).
+  // Returns true if something was removed.
+  Tres.prototype.removeRef = function (block, key, token) {
+    var i = propIndex(block, key);
+    if (i < 0) throw new Error('No such property: ' + key);
+    var line = block.lines[i], at = line.indexOf('(['), head, body, n;
+    if (at < 0) throw new Error('Unexpected array format in ' + key);
+    head = line.slice(0, at + 2); body = line.slice(at + 2);
+    n = body.replace(', ' + token, '');
+    if (n === body) n = body.replace(token + ', ', '');
+    if (n === body) n = body.replace(token, '');
+    block.lines[i] = head + n;
+    return n !== body;
+  };
+  // Drops an ext_resource that nothing refers to any more (keeps the blank line that separates the header from [resource]).
+  Tres.prototype.dropExtIfUnused = function (id) {
+    var b = this.extById(id);
+    if (!b || this.usesOf(id) !== 0) return false;
+    var idx = this.blocks.indexOf(b), tail = [];
+    while (b.lines.length > 1 && b.lines[b.lines.length - 1] === '') { tail.push(''); b.lines.pop(); }
+    this.blocks.splice(idx, 1);
+    if (tail.length && idx > 0) Array.prototype.push.apply(this.blocks[idx - 1].lines, tail);
+    return true;
+  };
   // load_steps in the header is ext + sub resources + the main one; keep it consistent only if it was consistent before
   Tres.prototype.loadSteps = function () {
     var h = this.blocks[0] && this.blocks[0].kind === 'gd_resource' ? this.blocks[0] : null;

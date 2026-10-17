@@ -303,9 +303,12 @@
     }).join('');
   }
   var itemTable = function (rows, force) { return rows || force ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th>' + (EDIT_ON ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
+  var INV_CID = '__inv', INV_W = 8, INV_H = 13;   // the carried inventory: 8 columns x 13 rows, stored in the character's own inventory list
   function charHtml(t, m, ext) {
-    var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment'), inv = map('inventory');
-    return '<h2>Character</h2><h3>Equipped</h3>' + itemTable(rowsHtml(eq, false)) + '<h3>Carried &middot; ' + inv.length + ' items</h3>' + itemTable(rowsHtml(inv, true));
+    var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment');
+    CUR_CID = INV_CID; var inv = map('inventory'); CUR_CID = '';
+    return '<h2>Character</h2><h3>Equipped</h3>' + itemTable(rowsHtml(eq, false)) + '<h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' +
+      '<div class="carried">' + (EDIT_ON ? addBarHtml(CUR_FILE, INV_CID, INV_W, INV_H, 'Carried items') : '') + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(inv, true), EDIT_ON) + '</div><div class="cgwrap">' + gridHtml({ dims: [INV_W, INV_H], items: inv }) + '</div></div></div>';
   }
   // Uses the item definitions in the game files: hides condition/quantity where the game has none, caps the quantity at the stack limit.
   async function applyDefs() {
@@ -326,7 +329,7 @@
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, or tick Remove, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to your carried grid, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#isrc').value = IS.src; return; }
     var chars = '';
     try {
@@ -337,10 +340,12 @@
         if (t.get(m, 'equipment') !== undefined) chars += charHtml(t, m, extMap(t));
       }
     } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#isrc').value = IS.src; return; }
-    v.innerHTML = head + iconHint() + (chars || '<div class="empty">No character file found in this save.</div>');
+    v.innerHTML = head + iconHint() + (IS.edit ? '<datalist id="itemlist"></datalist>' : '') + (chars || '<div class="empty">No character file found in this save.</div>');
     $('#isrc').value = IS.src;
     fillIcons();
     applyDefs();
+    layoutGrids();
+    if (IS.edit) fillItemList();
   }
 
 
@@ -418,6 +423,10 @@
       if (msg) { msg.className = 'meta gmsg' + (issues.length ? ' bad' : ''); msg.textContent = (est ? 'Size unknown (modded furniture), so this grid is drawn from the items\' positions. ' : '') + (placed.length ? 'Items reach column ' + maxc + (est ? '' : ' of ' + W) + ' and row ' + maxr + (est ? '' : ' of ' + H) + '.' : 'Empty ' + W + '\u00d7' + H + ' grid.') + (unknown ? ' ' + unknown + ' item' + (unknown === 1 ? '' : 's') + ' of unknown size (drawn as 1\u00d71).' : '') + (issues.length ? ' ' + issues.slice(0, 4).join('; ') + (issues.length > 4 ? '; ...' : '') + '.' : ''); }
     }
   }
+  // the "add an item" bar above a grid (shelter containers and the carried inventory)
+  function addBarHtml(file, cid, W, H, cname) {
+    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><span class="tag man" title="Adding items worked in testing, but it needs more testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
+  }
   function shelterPageHtml(name, t, m, ext) {
     var seen = {};
     var fur = ids(t.get(m, 'furnitures'), 'SubResource').map(function (id) {
@@ -434,7 +443,7 @@
     var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0], id) : null; }).filter(Boolean);
     var title = function (f) { return f.name + (seen[f.name] > 1 ? ' #' + f.n : ''); };
     var cdet = function (f) {
-      var add = EDIT_ON && f.dims ? '<div class="addbar" data-file="' + esc(CUR_FILE) + '" data-cid="' + esc(f.id) + '" data-cw="' + f.dims[0] + '" data-ch="' + f.dims[1] + '" data-cname="' + esc(title(f)) + '"><span class="tag man" title="Adding items worked in testing, but it needs more testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>' : '';
+      var add = EDIT_ON && f.dims ? addBarHtml(CUR_FILE, f.id, f.dims[0], f.dims[1], title(f)) : '';
       return '<details' + (EDIT_ON ? ' open' : '') + '><summary>' + esc(title(f)) + ' <span class="meta">&middot; ' + (f.dims ? f.dims[0] + '&times;' + f.dims[1] + ' &middot; ' : 'size unknown &middot; ') + f.items.length + ' item' + (f.items.length === 1 ? '' : 's') + '</span></summary>' + add + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(f.items, true), EDIT_ON && !!f.dims) + '</div>' + (f.dims || f.items.length ? '<div class="cgwrap">' + gridHtml(f) + '</div>' : '') + '</div></details>';
     };
     var ldet = loose.length ? '<details><summary>Loose items <span class="meta">&middot; ' + loose.length + ' item' + (loose.length === 1 ? '' : 's') + '</span></summary>' + itemTable(rowsHtml(loose, true)) + '</details>' : '';
@@ -632,11 +641,11 @@
         r.forEach(function (id) { gone[id] = true; }); removed += r.length;
       });
       byFile[f].filter(function (e) { return e.add; }).forEach(function (e) {
-        var cb = t.subById(e.cid);
-        if (!cb || gone[e.cid]) throw new Error('The container "' + e.cname + '" was not found in ' + f + ' (the save may have changed since this page was loaded)');
+        var toInv = e.cid === INV_CID, cb = toInv ? t.main() : t.subById(e.cid), key = toInv ? 'inventory' : 'storage';
+        if (!cb || gone[e.cid] || (toInv && t.get(cb, 'inventory') === undefined)) throw new Error('The container "' + e.cname + '" was not found in ' + f + ' (the save may have changed since this page was loaded)');
         var nid = addSlot(t, e, cb);
-        if (t.get(cb, 'storage') === undefined) t.insert(cb, 'storage', 'Array[ExtResource("' + t.extFor('res://Scripts/SlotData.gd', 'Script') + '")]([SubResource("' + nid + '")])');
-        else t.appendRef(cb, 'storage', 'SubResource("' + nid + '")');
+        if (t.get(cb, key) === undefined) t.insert(cb, 'storage', 'Array[ExtResource("' + t.extFor('res://Scripts/SlotData.gd', 'Script') + '")]([SubResource("' + nid + '")])');
+        else t.appendRef(cb, key, 'SubResource("' + nid + '")');
         added++; addedHere = true;
       });
       t.setLoadSteps(ls);
@@ -969,7 +978,7 @@
       else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) { var ge = document.querySelector('.gi[data-aid="' + cr.dataset.aid + '"]'); if (ge) ge.remove(); cr.remove(); } return; }
       else if (act === 'inv-apply' || act === 'sh-apply') {
         var shl = act === 'sh-apply', S2 = shl ? SS : IS;
-        var ie = collectInvEdits().concat(shl ? collectAdds() : []); if (!ie.length) { toast('No changes to apply'); return; }
+        var ie = collectInvEdits().concat(collectAdds()); if (!ie.length) { toast('No changes to apply'); return; }
         var isrc = S2.src === 'live' ? saveDir : j(j(bakDir, S2.src), 'data'), plan = await planInv(isrc, ie);
         var lines = ie.slice(0, 14).map(function (e) { return e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')' : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
         if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');

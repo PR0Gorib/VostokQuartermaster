@@ -80,3 +80,12 @@ tr.ea td{background:#1b2a22}
 .qbar{display:flex;gap:8px;margin:8px 0}
 .itm td.qi{white-space:normal;color:var(--mut);font-size:12.5px}.qi b{color:var(--text);font-weight:600}
 .addbar .atask{max-width:220px}
+.eqgrid{margin-top:6px}
+.eqs{position:absolute;box-sizing:border-box;border:1px solid var(--line);background:#1a2423;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.eqs.has{border-color:var(--mut);cursor:pointer}.eqs.has:hover{border-color:var(--text)}
+.eqs img{width:100%;height:100%;object-fit:contain}
+.eql{color:#4b5a55;font-size:10.5px;text-align:center;padding:0 2px}
+.eqn{position:absolute;left:3px;bottom:2px;max-width:calc(100% - 26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;text-shadow:0 0 3px #000,0 0 3px #000}
+.eqc{position:absolute;right:3px;top:2px;font-size:10px;text-shadow:0 0 3px #000}.eqc.ok{color:var(--ok)}.eqc.warn{color:#d9a441}.eqc.bad{color:#f0a78f}
+.eqa{position:absolute;right:3px;bottom:2px;font-size:10px;color:var(--ok);text-shadow:0 0 3px #000}
+tr.flash td{background:#2a3a2f}

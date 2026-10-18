@@ -298,16 +298,50 @@
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n;
       var ed = EDIT_ON && s.sid;
-      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
   var itemTable = function (rows, force) { return rows || force ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th>' + (EDIT_ON ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
+  // The equipment screen as the game draws it: 6 columns x 8 rows of cells. [slot name in the save, column, row, width, height]
+  var EQ_CELL = 56, EQ_W = 6, EQ_H = 8;
+  var EQ_LAYOUT = [['Primary', 0, 0, 6, 2], ['Secondary', 0, 2, 4, 2], ['Knife', 4, 2, 2, 1], ['Grenade1', 4, 3, 1, 1], ['Grenade2', 5, 3, 1, 1],
+    ['Backpack', 0, 4, 2, 2], ['Rig', 2, 4, 2, 2], ['Helmet', 4, 4, 2, 2],
+    ['Head', 0, 6, 1, 1], ['Torso', 1, 6, 1, 1], ['Legs', 2, 6, 1, 1], ['Belt', 3, 6, 1, 1], ['Feet', 4, 6, 1, 1], ['Hands', 5, 6, 1, 1],
+    ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
+  function eqPanelHtml(eq) {
+    var by = {}, used = {};
+    eq.forEach(function (s) { by[String(s.slot).toLowerCase()] = s; });
+    var boxes = EQ_LAYOUT.map(function (b) {
+      var s = by[b[0].toLowerCase()]; if (s) used[b[0].toLowerCase()] = true;
+      return '<div class="eqs' + (s ? ' has' : '') + '" data-slot="' + esc(b[0]) + '" data-c="' + b[1] + '" data-r="' + b[2] + '" data-w="' + b[3] + '" data-h="' + b[4] + '"' + (s ? ' data-path="' + esc(s.path) + '" data-cond="' + s.cond + '" data-qty="' + s.qty + '" title="' + esc(s.name + ' (' + b[0] + ')') + '"' : ' title="' + esc(b[0]) + ' (empty)"') + '>' +
+        (s ? (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '<span class="eqn">' + esc(s.name) + '</span><span class="eqc"></span><span class="eqa"></span>' : '<span class="eql">' + esc(b[0]) + '</span>') + '</div>';
+    }).join('');
+    var other = eq.filter(function (s) { return !used[String(s.slot).toLowerCase()]; });
+    return '<div class="cgrid eqgrid">' + boxes + '</div>' + (other.length ? '<p class="meta">Other equipped (slot not on the screen): ' + other.map(function (s) { return esc(s.name) + ' (' + esc(s.slot || 'no slot') + ')'; }).join(', ') + '</p>' : '') + '<p class="meta">Click an item to find it in the list.</p>';
+  }
+  // sizes and positions are set from code (the CSP does not allow inline style attributes)
+  async function layoutEquip() {
+    var gs = Array.prototype.slice.call(document.querySelectorAll('#view .eqgrid')); if (!gs.length) return;
+    var haveDefs = false; if (gameDir && !IC.fail) { try { await iconPack(); haveDefs = true; } catch (e) {} }
+    for (var g of gs) {
+      g.style.width = EQ_W * EQ_CELL + 'px'; g.style.height = EQ_H * EQ_CELL + 'px'; g.style.backgroundSize = EQ_CELL + 'px ' + EQ_CELL + 'px';
+      for (var el of Array.prototype.slice.call(g.querySelectorAll('.eqs'))) {
+        el.style.left = el.dataset.c * EQ_CELL + 'px'; el.style.top = el.dataset.r * EQ_CELL + 'px'; el.style.width = el.dataset.w * EQ_CELL + 'px'; el.style.height = el.dataset.h * EQ_CELL + 'px';
+        if (!el.dataset.path || !haveDefs) continue;
+        var d = null; try { d = /^res:\/\/Items\//i.test(el.dataset.path) ? await Pck.itemDef(IC.pack, el.dataset.path) : null; } catch (e) { d = null; }
+        if (!d || !d.ok) continue;
+        var c = el.querySelector('.eqc'), a = el.querySelector('.eqa'), cond = +el.dataset.cond, qty = +el.dataset.qty;
+        if (d.showCondition) { c.textContent = cond + '%'; c.className = 'eqc ' + (cond >= 50 ? 'ok' : cond >= 25 ? 'warn' : 'bad'); }
+        if (d.showAmount && qty) a.textContent = qty;
+      }
+    }
+  }
   var INV_CID = '__inv', INV_W = 8, INV_H = 13;   // the carried inventory: 8 columns x 13 rows, stored in the character's own inventory list
   function charHtml(t, m, ext) {
     var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment');
     CUR_CID = INV_CID; var inv = map('inventory'); CUR_CID = '';
-    return '<h2>Character</h2><h3>Equipped</h3>' + itemTable(rowsHtml(eq, false)) + '<h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' +
+    return '<h2>Character</h2><h3>Equipped</h3><div class="cbody"><div class="ctab">' + itemTable(rowsHtml(eq, false)) + '</div><div class="cgwrap">' + eqPanelHtml(eq) + '</div></div><h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' +
       '<div class="carried">' + (EDIT_ON ? addBarHtml(CUR_FILE, INV_CID, INV_W, INV_H, 'Carried items') : '') + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(inv, true), EDIT_ON) + '</div><div class="cgwrap">' + gridHtml({ dims: [INV_W, INV_H], items: inv }) + '</div></div></div>';
   }
   // Uses the item definitions in the game files: hides condition/quantity where the game has none, caps the quantity at the stack limit.
@@ -345,6 +379,7 @@
     fillIcons();
     applyDefs();
     layoutGrids();
+    layoutEquip();
     if (IS.edit) fillItemList();
   }
 
@@ -949,6 +984,8 @@
   document.addEventListener('click', async function (ev) {
     var nb = ev.target.closest('#nav button[data-page]');
     if (nb) { page = nb.dataset.page; if (page !== 'settings') IC.fail = ''; IS.edit = false; SS.edit = false; TS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
+    var es = ev.target.closest('.eqs.has');
+    if (es) { var er = document.querySelector('#view tr[data-slot="' + es.dataset.slot + '"]'); if (er) { er.scrollIntoView({ block: 'center', behavior: 'smooth' }); er.classList.add('flash'); setTimeout(function () { er.classList.remove('flash'); }, 1400); } return; }
     var b = ev.target.closest('[data-act]'); if (!b) return;
     var act = b.dataset.act, id = b.parentElement.dataset.id;
     try {

@@ -298,7 +298,7 @@
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n;
       var ed = EDIT_ON && s.sid;
-      return '<tr' + (/^res:\/\/Items\//i.test(s.path || '') ? ' data-path="' + esc(s.path) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
@@ -354,6 +354,25 @@
   // Grid size of each container furniture, in cells (width x height).
   var CONTAINERS = { Cabinet_Medical_F: [4, 4], Cabinet_Office_F: [4, 4], Cabinet_Wood_F: [6, 8], Crate_Military_F: [8, 6], Crate_Special_F: [8, 13], Freezer_F: [8, 13], Fridge_F: [4, 6], Locker_F: [8, 13], Nightstand_F: [4, 3], Stove_F: [5, 5] };
   var CELL = 64;  // grid positions in the save are cell index x 64
+  // Items from mods are not in the game files, so their grid size is unknown. The user tells us once; it is remembered.
+  var MODSZ = (function () { try { return JSON.parse(localStorage.getItem('modsizes') || '{}') || {}; } catch (e) { return {}; } })();
+  function saveModSizes() { localStorage.setItem('modsizes', JSON.stringify(MODSZ)); }
+  async function sizeFor(path) {
+    var d = null; try { d = IC.pack ? await Pck.itemDef(IC.pack, path) : null; } catch (e) { d = null; }
+    return d && d.ok ? d.size : (MODSZ[path] || null);
+  }
+  async function askModSize(path) {
+    var mod = Tres.modOf(path);
+    var r = await ask('Size of a modded item', Tres.itemName(path) + (mod ? ' (from the mod "' + mod + '")' : '') + ' is not in the base game, so its size in the inventory grid is unknown.\n\nHow many cells does it take in the game? Enter width x height, for example 1x1. Quartermaster remembers it (Settings lists it and can forget it). A wrong size can make items overlap in game, so check it in your inventory.', { input: '1x1', ok: 'Save' });
+    var m = typeof r === 'string' ? /^\s*(\d+)\s*[x\u00d7*]\s*(\d+)\s*$/i.exec(r) : null;
+    if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 12 || +m[2] > 16) return null;
+    MODSZ[path] = [+m[1], +m[2]]; saveModSizes(); return MODSZ[path];
+  }
+  function modSizeHtml() {
+    var ks = Object.keys(MODSZ);
+    return '<div class="set"><h4>Modded item sizes</h4><p class="nb">Sizes you entered for items from mods (needed to add items next to them safely).' + (ks.length ? '' : ' None yet.') + '</p>' +
+      ks.map(function (k) { return '<div class="ab-line"><span>' + esc(Tres.itemName(k)) + ' &middot; ' + MODSZ[k][0] + '&times;' + MODSZ[k][1] + ' <span class="meta">(' + esc(Tres.modOf(k) || 'unknown mod') + ')</span></span><button data-act="forgetsize" data-p="' + esc(k) + '">Forget</button></div>'; }).join('') + '</div>';
+  }
   function furBase(p) { return (String(p).split('/').pop() || '').replace(/\.tres$/i, ''); }
   // placed = [{col,row,w,h}]; returns a problem description or ''
   function layoutProblem(W, H, placed) {
@@ -403,7 +422,7 @@
       var els = Array.prototype.slice.call(g.querySelectorAll('.gi'));
       for (var el of els) {
         var d = null; try { d = haveDefs && /^res:\/\/Items\//i.test(el.dataset.path || '') ? await Pck.itemDef(IC.pack, el.dataset.path) : null; } catch (e) { d = null; }
-        var known = !!(d && d.ok), sz = known ? d.size : [1, 1], rot = el.dataset.rot === '1', gx = parseFloat(el.dataset.gx), gy = parseFloat(el.dataset.gy);
+        var ms = MODSZ[el.dataset.path], known = !!(d && d.ok) || !!ms, sz = d && d.ok ? d.size : (ms || [1, 1]), rot = el.dataset.rot === '1', gx = parseFloat(el.dataset.gx), gy = parseFloat(el.dataset.gy);
         var w = rot ? sz[1] : sz[0], h = rot ? sz[0] : sz[1], col = gx / CELL, row = gy / CELL, nm = el.dataset.name || 'item';
         if (isNaN(gx) || isNaN(gy)) { issues.push(nm + ' has no readable position'); el.hidden = true; continue; }
         if (gx % CELL || gy % CELL) issues.push(nm + ' is not on the 64-unit grid (x ' + gx + ', y ' + gy + ')');
@@ -506,12 +525,13 @@
     var W = +bar.dataset.cw, H = +bar.dataset.ch, box = bar.parentNode, placed = [];
     var rows = Array.prototype.slice.call(box.querySelectorAll('tr[data-cid], tr.ea'));
     for (var tr of rows) {
-      var d = tr.dataset.path ? await Pck.itemDef(IC.pack, tr.dataset.path) : null;
-      if (!d || !d.ok) return say('This container holds an item whose size is unknown (for example from a mod), so nothing can be added safely.');
+      var sz0 = tr.dataset.path ? await sizeFor(tr.dataset.path) : null;
+      if (!sz0 && tr.dataset.path && !/^res:\/\/Items\//i.test(tr.dataset.path)) { sz0 = await askModSize(tr.dataset.path); if (sz0) layoutGrids(); }
+      if (!sz0) return say('This container holds an item whose size is unknown (for example from a mod), so nothing can be added safely.');
       var gx = parseFloat(tr.dataset.gx), gy = parseFloat(tr.dataset.gy);
       if (isNaN(gx) || isNaN(gy) || gx % CELL || gy % CELL) return say('Unexpected item layout in this container, so nothing is added.');
       var rot0 = tr.dataset.rot === '1';
-      placed.push({ col: gx / CELL, row: gy / CELL, w: rot0 ? d.size[1] : d.size[0], h: rot0 ? d.size[0] : d.size[1] });
+      placed.push({ col: gx / CELL, row: gy / CELL, w: rot0 ? sz0[1] : sz0[0], h: rot0 ? sz0[0] : sz0[1] });
     }
     var prob = layoutProblem(W, H, placed); if (prob) return say(prob);
     // quantity: stackable items (ammo, money) = the total count, split into stacks of at most the stack limit;
@@ -566,12 +586,13 @@
     var W = +bar.dataset.cw, H = +bar.dataset.ch, box = bar.parentNode, placed = [];
     var rows = Array.prototype.slice.call(box.querySelectorAll('tr[data-cid], tr.ea'));
     for (var tr of rows) {
-      var d0 = tr.dataset.path ? await Pck.itemDef(IC.pack, tr.dataset.path) : null;
-      if (!d0 || !d0.ok) return say('This container holds an item whose size is unknown (for example from a mod), so nothing can be added safely.');
+      var sz0 = tr.dataset.path ? await sizeFor(tr.dataset.path) : null;
+      if (!sz0 && tr.dataset.path && !/^res:\/\/Items\//i.test(tr.dataset.path)) { sz0 = await askModSize(tr.dataset.path); if (sz0) layoutGrids(); }
+      if (!sz0) return say('This container holds an item whose size is unknown (for example from a mod), so nothing can be added safely.');
       var gx = parseFloat(tr.dataset.gx), gy = parseFloat(tr.dataset.gy);
       if (isNaN(gx) || isNaN(gy) || gx % CELL || gy % CELL) return say('Unexpected item layout in this container, so nothing is added.');
       var rot0 = tr.dataset.rot === '1';
-      placed.push({ col: gx / CELL, row: gy / CELL, w: rot0 ? d0.size[1] : d0.size[0], h: rot0 ? d0.size[0] : d0.size[1] });
+      placed.push({ col: gx / CELL, row: gy / CELL, w: rot0 ? sz0[1] : sz0[0], h: rot0 ? sz0[0] : sz0[1] });
     }
     var prob = layoutProblem(W, H, placed); if (prob) return say(prob);
     var plan = [];
@@ -878,6 +899,7 @@
       '<div class="set"><h4>Game folder</h4><p>' + esc(gameDir || 'Not set') + (GD_AUTO ? ' (found automatically)' : '') + '</p><button data-act="pickgame">Choose&hellip;</button><p class="mt">Used for item icons and to check which mods are installed (the <b>mods</b> folder inside it). Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
+      modSizeHtml() +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
       '<div class="set about"><h4>About</h4>' +
@@ -1004,6 +1026,7 @@
         TS.edit = false;
         await ask('Edited copy created', 'Find it under Snapshots (tagged "Edited tasks") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
       }
+      else if (act === 'forgetsize') { delete MODSZ[b.dataset.p]; saveModSizes(); }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);

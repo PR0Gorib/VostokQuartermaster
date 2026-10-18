@@ -89,3 +89,5 @@ tr.ea td{background:#1b2a22}
 .eqc{position:absolute;right:3px;top:2px;font-size:10px;text-shadow:0 0 3px #000}.eqc.ok{color:var(--ok)}.eqc.warn{color:#d9a441}.eqc.bad{color:#f0a78f}
 .eqa{position:absolute;right:3px;bottom:2px;font-size:10px;color:var(--ok);text-shadow:0 0 3px #000}
 tr.flash td{background:#2a3a2f}
+.gi.flashgi{outline:2px solid var(--text);outline-offset:-2px;z-index:2}
+.cgwrap .gi,.itm tr[data-ks]{cursor:pointer}

@@ -293,12 +293,12 @@
   }
   function rowsHtml(list, sort) {
     var g = {}, order = [], seq = 0;
-    list.forEach(function (s) { if (!s) return; var k = EDIT_ON ? 'e' + (seq++) : [s.name, s.cond, s.qty, s.att.join('+'), s.slot, s.stored].join('|'); if (!g[k]) { g[k] = { s: s, n: 0 }; order.push(k); } g[k].n++; });
+    list.forEach(function (s) { if (!s) return; var k = EDIT_ON ? 'e' + (seq++) : [s.name, s.cond, s.qty, s.att.join('+'), s.slot, s.stored].join('|'); if (!g[k]) { g[k] = { s: s, n: 0, ids: [] }; order.push(k); } g[k].n++; g[k].ids.push(s.sid); });
     if (sort) order.sort(function (a, b) { var x = g[a].s, y = g[b].s; return x.cat.localeCompare(y.cat) || x.name.localeCompare(y.name); });
     return order.map(function (k) {
-      var s = g[k].s, n = g[k].n;
+      var s = g[k].s, n = g[k].n, kids = g[k].ids;
       var ed = EDIT_ON && s.sid;
-      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
@@ -441,7 +441,7 @@
   }
   function gridHtml(f) {
     return '<div class="cgrid" data-w="' + (f.dims ? f.dims[0] : 0) + '" data-h="' + (f.dims ? f.dims[1] : 0) + '"' + (f.dims ? '' : ' data-est="1"') + '>' + f.items.map(function (s) {
-      return '<div class="gi" data-path="' + esc(s.path) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '" data-name="' + esc(s.name) + '" title="' + esc(s.name) + '">' +
+      return '<div class="gi" data-k="' + esc(s.sid || '') + '" data-path="' + esc(s.path) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '" data-name="' + esc(s.name) + '" title="' + esc(s.name) + '">' +
         (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</div>';
     }).join('') + '</div><p class="meta gmsg"></p>';
   }
@@ -984,8 +984,22 @@
   document.addEventListener('click', async function (ev) {
     var nb = ev.target.closest('#nav button[data-page]');
     if (nb) { page = nb.dataset.page; if (page !== 'settings') IC.fail = ''; IS.edit = false; SS.edit = false; TS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
+    var flashRow = function (tr) { tr.scrollIntoView({ block: 'center', behavior: 'smooth' }); tr.classList.add('flash'); setTimeout(function () { tr.classList.remove('flash'); }, 1400); };
     var es = ev.target.closest('.eqs.has');
-    if (es) { var er = document.querySelector('#view tr[data-slot="' + es.dataset.slot + '"]'); if (er) { er.scrollIntoView({ block: 'center', behavior: 'smooth' }); er.classList.add('flash'); setTimeout(function () { er.classList.remove('flash'); }, 1400); } return; }
+    if (es) { var er = document.querySelector('#view tr[data-slot="' + es.dataset.slot + '"]'); if (er) flashRow(er); return; }
+    var gi = ev.target.closest('#view .gi');
+    if (gi) {
+      var gs = gi.closest('.cbody') || document, gr = gi.dataset.aid ? gs.querySelector('tr[data-aid="' + gi.dataset.aid + '"]') : (gi.dataset.k ? gs.querySelector('tr[data-ks~="' + gi.dataset.k + '"]') : null);
+      if (gr) flashRow(gr); return;
+    }
+    var rr = ev.target.closest('#view tr[data-ks], #view tr.ea');
+    if (rr && !ev.target.closest('button, input, select, label, summary, [data-act]')) {
+      var rs = rr.closest('.cbody'), ks = (rr.dataset.ks || '').split(' ');
+      if (rs) rs.querySelectorAll('.gi').forEach(function (g) {
+        if (ks.indexOf(g.dataset.k) === -1 && !(rr.dataset.aid && g.dataset.aid === rr.dataset.aid)) return;
+        g.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); g.classList.add('flashgi'); setTimeout(function () { g.classList.remove('flashgi'); }, 1400);
+      });
+    }
     var b = ev.target.closest('[data-act]'); if (!b) return;
     var act = b.dataset.act, id = b.parentElement.dataset.id;
     try {

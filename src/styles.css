@@ -91,3 +91,4 @@ tr.ea td{background:#1b2a22}
 tr.flash td{background:#2a3a2f}
 .gi.flashgi{outline:2px solid var(--text);outline-offset:-2px;z-index:2}
 .cgwrap .gi,.itm tr[data-ks]{cursor:pointer}
+.wrow td{background:#18201f}.wrow .fgrid{margin:8px 0 4px}

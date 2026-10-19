@@ -289,7 +289,7 @@
     var n = function (k) { var x = parseFloat(t.get(b, k)); return isNaN(x) ? 0 : x; };
     var gpm = /Vector2\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)/.exec(t.get(b, 'gridPosition') || '');
     return { sid: sid, rid: rid || sid, file: CUR_FILE, cid: CUR_CID, gx: gpm ? parseFloat(gpm[1]) : NaN, gy: gpm ? parseFloat(gpm[2]) : NaN, rot: t.get(b, 'gridRotated') === 'true', hasC: t.get(b, 'condition') !== undefined, hasA: t.get(b, 'amount') !== undefined, name: p ? Tres.itemName(p) : 'Unknown item', path: p || '', cat: catOf(p), cond: Math.round(n('condition')), qty: n('amount'), slot: String(t.get(b, 'slot') || '').replace(/"/g, ''),
-      att: ids(inner(t.get(b, 'nested')), 'ExtResource').map(function (i) { return Tres.itemName(ext[i] || ''); }), stored: ids(inner(t.get(b, 'storage')), 'SubResource').length };
+      att: ids(inner(t.get(b, 'nested')), 'ExtResource').map(function (i) { return Tres.itemName(ext[i] || ''); }), attp: ids(inner(t.get(b, 'nested')), 'ExtResource').map(function (i) { return ext[i] || ''; }), chamber: t.get(b, 'chamber') === 'true', stored: ids(inner(t.get(b, 'storage')), 'SubResource').length };
   }
   function rowsHtml(list, sort) {
     var g = {}, order = [], seq = 0;
@@ -298,14 +298,14 @@
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n, kids = g[k].ids;
       var ed = EDIT_ON && s.sid;
-      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') + ' data-nested="' + esc(s.attp.join('|')) + '" data-chi="' + (s.chamber ? 1 : 0) + '"' : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
   var itemTable = function (rows, force) { return rows || force ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th>' + (EDIT_ON ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
   // The equipment screen as the game draws it: 6 columns x 8 rows of cells. [slot name in the save, column, row, width, height]
   var EQ_CELL = 56, EQ_W = 6, EQ_H = 8;
-  var EQ_LAYOUT = [['Primary', 0, 0, 6, 2], ['Secondary', 0, 2, 4, 2], ['Knife', 4, 2, 2, 1], ['Grenade1', 4, 3, 1, 1], ['Grenade2', 5, 3, 1, 1],
+  var EQ_LAYOUT = [['Primary', 0, 0, 6, 2], ['Secondary', 0, 2, 4, 2], ['Knife', 4, 2, 2, 1], ['Grenade_1', 4, 3, 1, 1], ['Grenade_2', 5, 3, 1, 1],
     ['Backpack', 0, 4, 2, 2], ['Rig', 2, 4, 2, 2], ['Helmet', 4, 4, 2, 2],
     ['Head', 0, 6, 1, 1], ['Torso', 1, 6, 1, 1], ['Legs', 2, 6, 1, 1], ['Belt', 3, 6, 1, 1], ['Feet', 4, 6, 1, 1], ['Hands', 5, 6, 1, 1],
     ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
@@ -353,6 +353,7 @@
       var d; try { d = await Pck.itemDef(IC.pack, tr.dataset.path); } catch (e) { d = null; }
       if (!d || !d.ok) continue;
       var ed = tr.classList.contains('er'), cc = tr.querySelector('.cc'), qc = tr.querySelector('.qc');
+      if (ed && d.type === 'Weapon' && !tr.querySelector('[data-act="wp-open"]')) { tr.dataset.wp = '1'; var lt = tr.lastElementChild; if (lt) lt.insertAdjacentHTML('beforeend', ' <button data-act="wp-open" title="Change the magazine, attachments and chamber">Weapon&hellip;</button>'); var wq = tr.querySelector('[data-w="a"]'); if (wq) wq.min = 0; }
       if (cc && !d.showCondition) cc.innerHTML = '<span class="meta" title="The game does not use a condition for this item">' + (ed ? 'n/a' : '\u2013') + '</span>';
       if (qc && !d.showAmount) qc.innerHTML = ed ? '<span class="meta" title="The game does not use a quantity for this item">n/a</span>' : '';
       else if (qc && d.maxAmount) { var qi = qc.querySelector('input'); if (qi) { qi.max = d.maxAmount; if (+qi.value > d.maxAmount) qi.value = d.maxAmount; } }
@@ -672,10 +673,62 @@
       if (r && r.checked) { out.push({ file: d.file, rid: d.rid, sid: d.sid, name: d.name, remove: true, eq: !!d.eq }); return; }
       var e = { file: d.file, sid: d.sid, name: d.name };
       if (c && c.value !== d.ci) { var cv = parseInt(c.value, 10); if (isNaN(cv) || cv < 0 || cv > 100) throw new Error(d.name + ': condition must be 0 to 100'); e.cond = cv; e.condFrom = d.ci; }
-      if (a && a.value !== d.ai) { var av = parseInt(a.value, 10); var amax = +a.max > 0 ? +a.max : Infinity; if (isNaN(av) || av < 1 || av > amax) throw new Error(d.name + ': quantity must be 1' + (amax < Infinity ? ' to ' + amax : ' or more')); e.amt = av; e.amtFrom = d.ai; }
+      if (a && a.value !== d.ai) { var av = parseInt(a.value, 10); var amax = +a.max > 0 ? +a.max : Infinity; var amin = d.wp ? 0 : 1; if (isNaN(av) || av < amin || av > amax) throw new Error(d.name + ': quantity must be ' + amin + (amax < Infinity ? ' to ' + amax : ' or more')); e.amt = av; e.amtFrom = d.ai; }
       if (e.cond !== undefined || e.amt !== undefined) out.push(e);
     });
     return out;
+  }
+  /* ---------- weapon workbench: magazine, attachments and chamber of a weapon row (what fits comes from the game's own item data) ---------- */
+  async function sameAmmoMags(ammo) {
+    if (!ammo) return [];
+    if (!IC.mags) {
+      IC.mags = [];
+      var names = IC.pack.names.filter(function (n) { return /^Items\/Weapons\/[^\/]+\/[^\/]*(Magazine|Drum)[^\/]*\.tres\.remap$/i.test(n); });
+      for (var n of names) { var p = 'res://' + n.replace(/\.remap$/, ''), d = await Pck.itemDef(IC.pack, p); if (d && d.ok && d.subtype === 'Magazine') IC.mags.push({ path: p, def: d }); }
+    }
+    return IC.mags.filter(function (m) { return m.def.compatible.indexOf(ammo) !== -1; });
+  }
+  async function wbHtml(tr) {
+    var wd = await Pck.itemDef(IC.pack, tr.dataset.path);
+    if (!wd || !wd.ok || wd.type !== 'Weapon') return null;
+    var cur = (tr.dataset.nested || '').split('|').filter(Boolean), groups = { Magazine: [], Optic: [], Muzzle: [], Laser: [] }, seen = {}, curBy = {}, p, d;
+    var add = async function (path, same) { if (seen[path]) return; var dd = await Pck.itemDef(IC.pack, path); if (!dd || !dd.ok || !groups[dd.subtype]) return; seen[path] = true; groups[dd.subtype].push({ path: path, d: dd, same: same }); };
+    for (p of wd.compatible) await add(p, false);
+    for (var m of await sameAmmoMags(wd.ammo)) await add(m.path, true);
+    for (p of cur) { d = await Pck.itemDef(IC.pack, p); if (d && d.ok && groups[d.subtype]) { curBy[d.subtype] = p; if (!seen[p]) { seen[p] = true; groups[d.subtype].push({ path: p, d: d, same: false }); } } }
+    var hasMag = groups.Magazine.length > 0;
+    var fields = ['Magazine', 'Optic', 'Muzzle', 'Laser'].filter(function (c) { return groups[c].length; }).map(function (c) {
+      return '<label class="fld"><span>' + c + '</span><select data-w="wopt" data-cat="' + c + '" data-init="' + esc(curBy[c] || '') + '"><option value="">None</option>' + groups[c].map(function (o) {
+        return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (o.path === curBy[c] ? ' selected' : '') + '>' + esc(Tres.itemName(o.path) + (c === 'Magazine' && o.d.maxAmount ? ' (' + o.d.maxAmount + ' rounds)' : '') + (o.same ? ' - same ammo' : '')) + '</option>';
+      }).join('') + '</select></label>';
+    }).join('');
+    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="meta">' + esc(Tres.itemName(tr.dataset.path)) + ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') + '</div>' +
+      '<div class="fgrid">' + fields + '<label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label></div>' +
+      '<div class="meta">Rounds loaded: use the Qty box in the item row (it follows the magazine size). Choices come from what the game lists as compatible, plus other magazines for the same ammo.</div></td></tr>';
+  }
+  // keeps the Qty box (rounds loaded) in line with the chosen magazine
+  function wbSync(w, initial) {
+    var tr = w.previousElementSibling, qi = tr && tr.querySelector('[data-w="a"]'); if (!qi) return;
+    var ms = w.querySelector('select[data-cat="Magazine"]');
+    if (ms) {
+      var max = +ms.options[ms.selectedIndex].dataset.max || 0; qi.max = max || '';
+      if (!initial) { if (!ms.value) qi.value = 0; else { var v = parseInt(qi.value, 10); if (isNaN(v) || v === 0 || (max && v > max)) qi.value = max || v || 0; } }
+    } else if (+w.dataset.wmax) qi.max = w.dataset.wmax;
+  }
+  function collectWeaponEdits() {
+    var out = [];
+    document.querySelectorAll('#view tr.wrow').forEach(function (w) {
+      var tr = w.previousElementSibling; if (!tr || !tr.classList.contains('er')) return;
+      var rm = tr.querySelector('[data-w="r"]'); if (rm && rm.checked) return;
+      var e = { file: tr.dataset.file, sid: tr.dataset.sid, name: tr.dataset.name, weapon: true, attOut: [], attIn: [] }, ch = w.querySelector('[data-w="wch"]');
+      w.querySelectorAll('select[data-w="wopt"]').forEach(function (sel) { if (sel.value !== sel.dataset.init) { if (sel.dataset.init) e.attOut.push(sel.dataset.init); if (sel.value) e.attIn.push(sel.value); } });
+      if (ch && (ch.checked ? '1' : '0') !== tr.dataset.chi) e.chamber = ch.checked;
+      if (e.attOut.length || e.attIn.length || e.chamber !== undefined) out.push(e);
+    });
+    return out;
+  }
+  function weaponLine(e) {
+    return e.name + ': ' + [].concat(e.attOut.map(function (p) { return 'remove ' + Tres.itemName(p); }), e.attIn.map(function (p) { return 'add ' + Tres.itemName(p); }), e.chamber === undefined ? [] : ['chamber ' + (e.chamber ? 'on' : 'off')]).join(', ');
   }
   var numLike = function (raw, v) { return /\./.test(String(raw)) ? Number(v).toFixed(1) : String(v); };
   // builds the new file texts in memory and checks them; nothing is written yet
@@ -685,7 +738,7 @@
     for (var f of Object.keys(byFile)) {
       var t = Tres.parse(await fs.readTextFile(j(src, f))), gone = {}, ls = null, addedHere = false;
       ls = t.loadSteps();
-      byFile[f].filter(function (e) { return !e.remove && !e.add; }).forEach(function (e) {
+      byFile[f].filter(function (e) { return !e.remove && !e.add && !e.weapon; }).forEach(function (e) {
         var b = t.subById(e.sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
         if (e.cond !== undefined) t.set(b, 'condition', numLike(t.get(b, 'condition'), e.cond));
         if (e.amt !== undefined) t.set(b, 'amount', numLike(t.get(b, 'amount'), e.amt));
@@ -695,6 +748,21 @@
         if (gone[e.rid]) return;
         var r = t.removeSlot(e.rid); if (!r.length) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
         r.forEach(function (id) { gone[id] = true; }); removed += r.length;
+      });
+      byFile[f].filter(function (e) { return e.weapon; }).forEach(function (e) {
+        if (gone[e.sid]) return;
+        var b = t.subById(e.sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
+        var nestedIds = function () { return ids(inner(t.get(b, 'nested')), 'ExtResource'); };
+        (e.attOut || []).forEach(function (path) {
+          var em = extMap(t), have = nestedIds();
+          Object.keys(em).filter(function (id) { return em[id] === path && have.indexOf(id) !== -1; }).forEach(function (id) { t.removeRef(b, 'nested', 'ExtResource("' + id + '")'); t.dropExtIfUnused(id); });
+        });
+        (e.attIn || []).forEach(function (path) {
+          var id = t.extFor(path, 'Resource');
+          if (nestedIds().indexOf(id) === -1) t.appendRef(b, 'nested', 'ExtResource("' + id + '")');
+        });
+        if (e.chamber !== undefined) t.set(b, 'chamber', e.chamber ? 'true' : 'false');
+        edited++;
       });
       byFile[f].filter(function (e) { return e.add; }).forEach(function (e) {
         var toInv = e.cid === INV_CID, cb = toInv ? t.main() : t.subById(e.cid), key = toInv ? 'inventory' : 'storage';
@@ -1043,7 +1111,7 @@
       }
       else if (act === 'inv-edit' || act === 'sh-edit') {
         var S1 = act === 'sh-edit' ? SS : IS;
-        if (S1.edit) { var pend; try { pend = collectInvEdits().length + collectAdds().length; } catch (e) { pend = 1; } if (pend && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return; }
+        if (S1.edit) { var pend; try { pend = collectInvEdits().length + collectAdds().length + collectWeaponEdits().length; } catch (e) { pend = 1; } if (pend && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return; }
         S1.edit = !S1.edit;
       }
       else if (act === 'sh-add') { await addToContainer(b.closest('.addbar')); return; }
@@ -1051,9 +1119,9 @@
       else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) { var ge = document.querySelector('.gi[data-aid="' + cr.dataset.aid + '"]'); if (ge) ge.remove(); cr.remove(); } return; }
       else if (act === 'inv-apply' || act === 'sh-apply') {
         var shl = act === 'sh-apply', S2 = shl ? SS : IS;
-        var ie = collectInvEdits().concat(collectAdds()); if (!ie.length) { toast('No changes to apply'); return; }
+        var ie = collectInvEdits().concat(collectAdds(), collectWeaponEdits()); if (!ie.length) { toast('No changes to apply'); return; }
         var isrc = S2.src === 'live' ? saveDir : j(j(bakDir, S2.src), 'data'), plan = await planInv(isrc, ie);
-        var lines = ie.slice(0, 14).map(function (e) { return e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')' : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
+        var lines = ie.slice(0, 14).map(function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')' : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
         if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
         var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\n\nAdding items is experimental. It has worked in testing, but keep your original snapshot and test the copy before relying on it.' : '');
         var sum = [plan.added ? plan.added + ' added' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed' + ' (including anything stored inside them)' : ''].filter(Boolean).join(', ');
@@ -1078,6 +1146,14 @@
         await ask('Edited copy created', 'Find it under Snapshots (tagged "Edited tasks") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
       }
       else if (act === 'forgetsize') { delete MODSZ[b.dataset.p]; saveModSizes(); }
+      else if (act === 'wp-open') {
+        var wtr = b.closest('tr'), wn = wtr.nextElementSibling;
+        if (wn && wn.classList.contains('wrow')) { wn.hidden = !wn.hidden; return; }
+        if (!gameDir) { toast('Set the game folder in Settings first'); return; }
+        await iconPack();
+        var wh = await wbHtml(wtr); if (!wh) { toast('Could not read this weapon from the game files'); return; }
+        wtr.insertAdjacentHTML('afterend', wh); wbSync(wtr.nextElementSibling, true); return;
+      }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
@@ -1096,7 +1172,8 @@
   document.addEventListener('change', function (ev) {
     var cw = ev.target.dataset && ev.target.dataset.w;
     if (cw === 'q') { qUpdate(ev.target.closest('.snap')); return; }
-    if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC ? 0 : 1, nn)); }
+    if (cw === 'wopt') { wbSync(ev.target.closest('tr.wrow'), false); return; }
+    if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC || row.dataset.wp ? 0 : 1, nn)); }
     if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; TS.edit = false; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; IS.edit = false; render(); } if (ev.target.id === 'ssrc') { SS.src = ev.target.value; SS.edit = false; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 
   document.addEventListener('input', function (ev) {

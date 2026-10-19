@@ -287,6 +287,7 @@
     });
     return res;
   }
+  function refPath(x) { return typeof x === 'string' ? x : (x && x.ext) || ''; }
   function defFromRes(res) {
     var o = res.objects.filter(function (x) { return /^res:\/\//.test(x.path); })[0] || res.objects[res.objects.length - 1];
     if (!o) return { ok: false, error: 'no object' };
@@ -297,7 +298,10 @@
       showCondition: !!p.showCondition, showAmount: !!p.showAmount, stackable: stackable,
       defaultAmount: typeof p.defaultAmount === 'number' ? p.defaultAmount : (stackable ? 1 : 0),
       maxAmount: typeof p.maxAmount === 'number' ? p.maxAmount : 0,
-      capacity: typeof p.capacity === 'number' ? p.capacity : 0, weight: typeof p.weight === 'number' ? p.weight : 0
+      capacity: typeof p.capacity === 'number' ? p.capacity : 0, weight: typeof p.weight === 'number' ? p.weight : 0,
+      subtype: p.subtype || '', weaponType: p.weaponType || '', ammo: refPath(p.ammo), magazineSize: typeof p.magazineSize === 'number' ? p.magazineSize : 0,
+      compatible: Array.isArray(p.compatible) ? p.compatible.map(refPath).filter(Boolean) : [],
+      slots: Array.isArray(p.slots) ? p.slots.filter(function (x) { return typeof x === 'string'; }) : []
     };
   }
   // itemPath: res://Items/Misc/Lumber/Lumber.tres. Returns null for anything that is not a base-game item.

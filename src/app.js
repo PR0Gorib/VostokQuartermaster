@@ -309,13 +309,70 @@
     ['Backpack', 0, 4, 2, 2], ['Rig', 2, 4, 2, 2], ['Helmet', 4, 4, 2, 2],
     ['Head', 0, 6, 1, 1], ['Torso', 1, 6, 1, 1], ['Legs', 2, 6, 1, 1], ['Belt', 3, 6, 1, 1], ['Feet', 4, 6, 1, 1], ['Hands', 5, 6, 1, 1],
     ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
+  function eqBarHtml() {
+    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
+      '<select class="eqitem" disabled><option value="">Choose a slot first</option></select><select class="eqmag" title="Magazine to load" hidden></select><button data-act="eq-add">Equip</button><span class="meta amsg"></span></div>';
+  }
+  // base-game items allowed in each equipment slot, from the item definitions (built once)
+  async function slotItems(slot) {
+    if (!IC.slotIdx) {
+      IC.slotIdx = {};
+      var names = IC.pack.names.filter(function (n) { return /^Items\/[^\/]+\/[^\/]+\/[^\/]+\.tres\.remap$/.test(n) && n.indexOf('/Files/') === -1; });
+      for (var n of names) {
+        var p = 'res://' + n.replace(/\.remap$/, ''), d = await Pck.itemDef(IC.pack, p); if (!d || !d.ok) continue;
+        d.slots.forEach(function (sl) { (IC.slotIdx[sl] = IC.slotIdx[sl] || []).push({ path: p, name: Tres.itemName(p) }); });
+      }
+    }
+    return (IC.slotIdx[slot] || []).slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+  }
+  async function fillEqItems(bar) {
+    var sel = bar.querySelector('.eqitem'), slot = bar.querySelector('.eqslot').value, msg = bar.querySelector('.amsg');
+    msg.textContent = ''; fillEqMag(bar, true); sel.disabled = true; sel.innerHTML = '<option value="">' + (slot ? 'Loading...' : 'Choose a slot first') + '</option>';
+    if (!slot) return;
+    if (!gameDir) { sel.innerHTML = '<option value="">Game folder needed</option>'; msg.textContent = 'Set the game folder in Settings first: the allowed items come from the game files.'; return; }
+    try { await iconPack(); } catch (e) { sel.innerHTML = '<option value="">Unavailable</option>'; msg.textContent = 'Could not read the game files.'; return; }
+    var items = await slotItems(slot);
+    sel.innerHTML = '<option value="">' + (items.length ? 'Choose an item...' : 'No base-game items for this slot') + '</option>' + items.map(function (o) { return '<option value="' + esc(o.path) + '">' + esc(o.name) + '</option>'; }).join('');
+    sel.disabled = !items.length;
+  }
+  // a weapon is equipped with one of its magazines loaded (the game's own compatible list)
+  async function fillEqMag(bar, clear) {
+    var ms = bar.querySelector('.eqmag'); ms.hidden = true; ms.innerHTML = ''; if (clear) return;
+    var path = bar.querySelector('.eqitem').value; if (!path) return;
+    var wd = await Pck.itemDef(IC.pack, path); if (!wd || !wd.ok || wd.type !== 'Weapon') return;
+    var mags = [], seen = {}, add = async function (pp) { if (seen[pp]) return; var d = await Pck.itemDef(IC.pack, pp); if (d && d.ok && d.subtype === 'Magazine') { seen[pp] = true; mags.push({ path: pp, max: d.maxAmount || 0 }); } };
+    for (var c of wd.compatible) await add(c);
+    if (XMAGS) for (var m of await sameAmmoMags(wd.ammo)) await add(m.path);
+    if (!mags.length) return;
+    ms.innerHTML = mags.map(function (m) { return '<option value="' + esc(m.path) + '" data-max="' + m.max + '">' + esc(Tres.itemName(m.path) + ' (' + m.max + ' rounds)') + '</option>'; }).join('') + '<option value="" data-max="0">No magazine</option>';
+    ms.hidden = false;
+  }
+  async function eqAdd(bar) {
+    var msg = bar.querySelector('.amsg'), say = function (t) { msg.textContent = t; }; say('');
+    var slot = bar.querySelector('.eqslot').value, path = bar.querySelector('.eqitem').value;
+    if (!slot || !path) return say('Choose a slot and an item first.');
+    var box = bar.closest('.cgwrap').querySelector('.eqs[data-slot="' + slot + '"]'); if (!box) return say('This slot is not on the equipment screen.');
+    var used = document.querySelector('#view tr.er[data-slot="' + slot + '"]');
+    if (used && !used.querySelector('[data-w="r"]').checked) return say('The ' + slot.replace('_', ' ') + ' slot is in use. Remove its item first (the \u00d7 on the slot).');
+    if (document.querySelector('#view tr.ea[data-slot="' + slot + '"]')) return say('This slot already has a pending item. Cancel it first.');
+    var def = await Pck.itemDef(IC.pack, path); if (!def || !def.ok) return say('Could not read this item from the game files.');
+    var ms = bar.querySelector('.eqmag'), mag = !ms.hidden ? ms.value : '', mmax = !ms.hidden && ms.value ? +ms.options[ms.selectedIndex].dataset.max || 0 : 0;
+    var amount = def.type === 'Weapon' ? (ms.hidden ? def.magazineSize : mmax) : (def.stackable ? Math.min(def.defaultAmount || 1, def.maxAmount > 0 ? def.maxAmount : (def.defaultAmount || 1)) : (def.showAmount ? (def.defaultAmount || def.maxAmount || 1) : def.defaultAmount));
+    var aid = 'a' + (++AID), cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path), tb = bar.closest('.cbody').querySelector('table.itm tbody');
+    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + EQ_CID + '" data-cname="Equipment" data-slot="' + esc(slot) + '" data-mag="' + esc(mag) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="0" data-gy="0" data-rot="0" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">' + esc(slot.replace('_', ' ')) + ' slot' + (mag ? ' &middot; ' + esc(Tres.itemName(mag)) + ' loaded' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (amount || '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    box.dataset.old = box.innerHTML; box.dataset.oldc = box.className; box.dataset.aid = aid; box.className = 'eqs has new';
+    box.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '<span class="eqn">' + esc(nm) + '</span>';
+    bar.querySelector('.eqslot').value = ''; fillEqItems(bar);
+    say('Equipped ' + nm + ' (pending). It is saved only when you create the edited copy.');
+    fillIcons();
+  }
   function eqPanelHtml(eq) {
     var by = {}, used = {};
     eq.forEach(function (s) { by[String(s.slot).toLowerCase()] = s; });
     var boxes = EQ_LAYOUT.map(function (b) {
       var s = by[b[0].toLowerCase()]; if (s) used[b[0].toLowerCase()] = true;
-      return '<div class="eqs' + (s ? ' has' : '') + '" data-slot="' + esc(b[0]) + '" data-c="' + b[1] + '" data-r="' + b[2] + '" data-w="' + b[3] + '" data-h="' + b[4] + '"' + (s ? ' data-path="' + esc(s.path) + '" data-cond="' + s.cond + '" data-qty="' + s.qty + '" title="' + esc(s.name + ' (' + b[0] + ')') + '"' : ' title="' + esc(b[0]) + ' (empty)"') + '>' +
-        (s ? (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '<span class="eqn">' + esc(s.name) + '</span><span class="eqc"></span><span class="eqa"></span>' : '<span class="eql">' + esc(b[0]) + '</span>') + '</div>';
+      return '<div class="eqs' + (s ? ' has' : (EDIT_ON ? ' eqe' : '')) + '" data-slot="' + esc(b[0]) + '" data-c="' + b[1] + '" data-r="' + b[2] + '" data-w="' + b[3] + '" data-h="' + b[4] + '"' + (s ? ' data-path="' + esc(s.path) + '" data-cond="' + s.cond + '" data-qty="' + s.qty + '" title="' + esc(s.name + ' (' + b[0] + ')') + '"' : ' title="' + esc(b[0]) + ' (empty)"') + '>' +
+        (s ? (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '<span class="eqn">' + esc(s.name) + '</span><span class="eqc"></span><span class="eqa"></span>' + (EDIT_ON && s.sid ? '<button class="eqx" data-act="eq-rm" title="Remove this item">&times;</button>' : '') : '<span class="eql">' + esc(b[0]) + '</span>') + '</div>';
     }).join('');
     var other = eq.filter(function (s) { return !used[String(s.slot).toLowerCase()]; });
     return '<div class="cgrid eqgrid">' + boxes + '</div>' + (other.length ? '<p class="meta">Other equipped (slot not on the screen): ' + other.map(function (s) { return esc(s.name) + ' (' + esc(s.slot || 'no slot') + ')'; }).join(', ') + '</p>' : '') + '<p class="meta">Click an item to find it in the list.</p>';
@@ -337,11 +394,11 @@
       }
     }
   }
-  var INV_CID = '__inv', INV_W = 8, INV_H = 13;   // the carried inventory: 8 columns x 13 rows, stored in the character's own inventory list
+  var INV_CID = '__inv', EQ_CID = '__eq', INV_W = 8, INV_H = 13;   // the carried inventory: 8 columns x 13 rows, stored in the character's own inventory list
   function charHtml(t, m, ext) {
     var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment');
     CUR_CID = INV_CID; var inv = map('inventory'); CUR_CID = '';
-    return '<h2>Character</h2><h3>Equipped</h3><div class="cbody"><div class="ctab">' + itemTable(rowsHtml(eq, false)) + '</div><div class="cgwrap">' + eqPanelHtml(eq) + '</div></div><h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' +
+    return '<h2>Character</h2><h3>Equipped</h3><div class="cbody"><div class="ctab">' + itemTable(rowsHtml(eq, false)) + '</div><div class="cgwrap">' + eqPanelHtml(eq) + (EDIT_ON ? eqBarHtml() : '') + '</div></div><h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' +
       '<div class="carried">' + (EDIT_ON ? addBarHtml(CUR_FILE, INV_CID, INV_W, INV_H, 'Carried items') : '') + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(inv, true), EDIT_ON) + '</div><div class="cgwrap">' + gridHtml({ dims: [INV_W, INV_H], items: inv }) + '</div></div></div>';
   }
   // Uses the item definitions in the game files: hides condition/quantity where the game has none, caps the quantity at the stack limit.
@@ -392,6 +449,7 @@
   var CELL = 64;  // grid positions in the save are cell index x 64
   // Items from mods are not in the game files, so their grid size is unknown. The user tells us once; it is remembered.
   var MODSZ = (function () { try { return JSON.parse(localStorage.getItem('modsizes') || '{}') || {}; } catch (e) { return {}; } })();
+  var XMAGS = localStorage.getItem('xmags') === '1';   // offer magazines of other weapons with the same ammo (needs a cross-compatibility mod)
   function saveModSizes() { localStorage.setItem('modsizes', JSON.stringify(MODSZ)); }
   async function sizeFor(path) {
     var d = null; try { d = IC.pack ? await Pck.itemDef(IC.pack, path) : null; } catch (e) { d = null; }
@@ -403,6 +461,9 @@
     var m = typeof r === 'string' ? /^\s*(\d+)\s*[x\u00d7*]\s*(\d+)\s*$/i.exec(r) : null;
     if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 12 || +m[2] > 16) return null;
     MODSZ[path] = [+m[1], +m[2]]; saveModSizes(); return MODSZ[path];
+  }
+  function magSettingHtml() {
+    return '<div class="set"><h4>Weapon editor</h4><label class="ab-check"><input type="checkbox" id="xmags"' + (XMAGS ? ' checked' : '') + '> Also offer magazines of other weapons that use the same ammo</label><p class="mt nb">The base game only lets a weapon take the magazines it lists. Turn this on only if you use a magazine cross-compatibility mod.</p></div>';
   }
   function modSizeHtml() {
     var ks = Object.keys(MODSZ);
@@ -655,14 +716,14 @@
     tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
   }
   function collectAdds() {
-    return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1' }; });
+    return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', mag: d.mag || '' }; });
   }
   // a new SlotData entry, written in the game's own property order
   function addSlot(t, e, before) {
     var sc = t.extFor('res://Scripts/SlotData.gd', 'Script'), ic = t.extFor('res://Scripts/ItemData.gd', 'Script'), it = t.extFor(e.path, 'Resource');
     return t.addSub([['script', 'ExtResource("' + sc + '")'], ['itemData', 'ExtResource("' + it + '")'], ['nested', 'Array[ExtResource("' + ic + '")]([])'], ['storage', 'Array[ExtResource("' + sc + '")]([])'],
       ['condition', String(e.cond)], ['amount', String(e.amount)], ['position', '0'], ['mode', '1'], ['zoom', '1'], ['chamber', 'false'], ['casing', 'false'], ['state', '""'],
-      ['gridPosition', 'Vector2(' + e.col * CELL + ', ' + e.row * CELL + ')'], ['gridRotated', e.rot ? 'true' : 'false'], ['slot', '""']], 'Resource', before);
+      ['gridPosition', 'Vector2(' + e.col * CELL + ', ' + e.row * CELL + ')'], ['gridRotated', e.rot ? 'true' : 'false'], ['slot', '"' + (e.slot || '') + '"']], 'Resource', before);
   }
 
   /* ---------- inventory editing (always written to a new snapshot) ---------- */
@@ -694,17 +755,17 @@
     var cur = (tr.dataset.nested || '').split('|').filter(Boolean), groups = { Magazine: [], Optic: [], Muzzle: [], Laser: [] }, seen = {}, curBy = {}, p, d;
     var add = async function (path, same) { if (seen[path]) return; var dd = await Pck.itemDef(IC.pack, path); if (!dd || !dd.ok || !groups[dd.subtype]) return; seen[path] = true; groups[dd.subtype].push({ path: path, d: dd, same: same }); };
     for (p of wd.compatible) await add(p, false);
-    for (var m of await sameAmmoMags(wd.ammo)) await add(m.path, true);
-    for (p of cur) { d = await Pck.itemDef(IC.pack, p); if (d && d.ok && groups[d.subtype]) { curBy[d.subtype] = p; if (!seen[p]) { seen[p] = true; groups[d.subtype].push({ path: p, d: d, same: false }); } } }
+    if (XMAGS) for (var m of await sameAmmoMags(wd.ammo)) await add(m.path, true);
+    for (p of cur) { d = await Pck.itemDef(IC.pack, p); if (d && d.ok && groups[d.subtype]) { curBy[d.subtype] = p; if (!seen[p]) { seen[p] = true; groups[d.subtype].push({ path: p, d: d, same: false, off: true }); } } }
     var hasMag = groups.Magazine.length > 0;
     var fields = ['Magazine', 'Optic', 'Muzzle', 'Laser'].filter(function (c) { return groups[c].length; }).map(function (c) {
       return '<label class="fld"><span>' + c + '</span><select data-w="wopt" data-cat="' + c + '" data-init="' + esc(curBy[c] || '') + '"><option value="">None</option>' + groups[c].map(function (o) {
-        return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (o.path === curBy[c] ? ' selected' : '') + '>' + esc(Tres.itemName(o.path) + (c === 'Magazine' && o.d.maxAmount ? ' (' + o.d.maxAmount + ' rounds)' : '') + (o.same ? ' - same ammo' : '')) + '</option>';
+        return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (o.path === curBy[c] ? ' selected' : '') + '>' + esc(Tres.itemName(o.path) + (c === 'Magazine' && o.d.maxAmount ? ' (' + o.d.maxAmount + ' rounds)' : '') + (o.same ? ' - same ammo' : '') + (o.off ? ' - not on the game\'s list' : '')) + '</option>';
       }).join('') + '</select></label>';
     }).join('');
     return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="meta">' + esc(Tres.itemName(tr.dataset.path)) + ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') + '</div>' +
       '<div class="fgrid">' + fields + '<label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label></div>' +
-      '<div class="meta">Rounds loaded: use the Qty box in the item row (it follows the magazine size). Choices come from what the game lists as compatible, plus other magazines for the same ammo.</div></td></tr>';
+      '<div class="meta">Rounds loaded: use the Qty box in the item row (it follows the magazine size). Choices are what the game lists as compatible' + (XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></td></tr>';
   }
   // keeps the Qty box (rounds loaded) in line with the chosen magazine
   function wbSync(w, initial) {
@@ -765,9 +826,10 @@
         edited++;
       });
       byFile[f].filter(function (e) { return e.add; }).forEach(function (e) {
-        var toInv = e.cid === INV_CID, cb = toInv ? t.main() : t.subById(e.cid), key = toInv ? 'inventory' : 'storage';
-        if (!cb || gone[e.cid] || (toInv && t.get(cb, 'inventory') === undefined)) throw new Error('The container "' + e.cname + '" was not found in ' + f + ' (the save may have changed since this page was loaded)');
+        var toInv = e.cid === INV_CID, toEq = e.cid === EQ_CID, toMain = toInv || toEq, cb = toMain ? t.main() : t.subById(e.cid), key = toInv ? 'inventory' : toEq ? 'equipment' : 'storage';
+        if (!cb || gone[e.cid] || (toMain && t.get(cb, key) === undefined)) throw new Error('The container "' + e.cname + '" was not found in ' + f + ' (the save may have changed since this page was loaded)');
         var nid = addSlot(t, e, cb);
+        if (e.mag) t.appendRef(t.subById(nid), 'nested', 'ExtResource("' + t.extFor(e.mag, 'Resource') + '")');
         if (t.get(cb, key) === undefined) t.insert(cb, 'storage', 'Array[ExtResource("' + t.extFor('res://Scripts/SlotData.gd', 'Script') + '")]([SubResource("' + nid + '")])');
         else t.appendRef(cb, key, 'SubResource("' + nid + '")');
         added++; addedHere = true;
@@ -1002,7 +1064,7 @@
       '<div class="set"><h4>Game folder</h4><p>' + esc(gameDir || 'Not set') + (GD_AUTO ? ' (found automatically)' : '') + '</p><button data-act="pickgame">Choose&hellip;</button><p class="mt">Used for item icons and to check which mods are installed (the <b>mods</b> folder inside it). Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
-      modSizeHtml() +
+      modSizeHtml() + magSettingHtml() +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
       '<div class="set about"><h4>About</h4>' +
@@ -1054,7 +1116,9 @@
     if (nb) { page = nb.dataset.page; if (page !== 'settings') IC.fail = ''; IS.edit = false; SS.edit = false; TS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
     var flashRow = function (tr) { tr.scrollIntoView({ block: 'center', behavior: 'smooth' }); tr.classList.add('flash'); setTimeout(function () { tr.classList.remove('flash'); }, 1400); };
     var es = ev.target.closest('.eqs.has');
-    if (es) { var er = document.querySelector('#view tr[data-slot="' + es.dataset.slot + '"]'); if (er) flashRow(er); return; }
+    if (es && !ev.target.closest('[data-act]')) { var er = document.querySelector('#view tr[data-slot="' + es.dataset.slot + '"]'); if (er) flashRow(er); return; }
+    var ee = ev.target.closest('.eqs.eqe');
+    if (ee) { var eqb = document.querySelector('#view .eqbar'); if (eqb) { eqb.querySelector('.eqslot').value = ee.dataset.slot; fillEqItems(eqb); eqb.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } return; }
     var gi = ev.target.closest('#view .gi');
     if (gi) {
       var gs = gi.closest('.cbody') || document, gr = gi.dataset.aid ? gs.querySelector('tr[data-aid="' + gi.dataset.aid + '"]') : (gi.dataset.k ? gs.querySelector('tr[data-ks~="' + gi.dataset.k + '"]') : null);
@@ -1116,12 +1180,14 @@
       }
       else if (act === 'sh-add') { await addToContainer(b.closest('.addbar')); return; }
       else if (act === 'sh-reward') { await addRewards(b.closest('.addbar')); return; }
-      else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) { var ge = document.querySelector('.gi[data-aid="' + cr.dataset.aid + '"]'); if (ge) ge.remove(); cr.remove(); } return; }
+      else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) { var ge = document.querySelector('.gi[data-aid="' + cr.dataset.aid + '"]'); if (ge) ge.remove(); var eb = document.querySelector('.eqs[data-aid="' + cr.dataset.aid + '"]'); if (eb) { eb.innerHTML = eb.dataset.old || ''; eb.className = eb.dataset.oldc || 'eqs eqe'; delete eb.dataset.aid; delete eb.dataset.old; delete eb.dataset.oldc; } cr.remove(); } return; }
+      else if (act === 'eq-rm') { var xb = b.closest('.eqs'), xt = document.querySelector('#view tr.er[data-slot="' + xb.dataset.slot + '"]'), xc = xt && xt.querySelector('[data-w="r"]'); if (xc) { xc.checked = !xc.checked; xb.classList.toggle('rm', xc.checked); } return; }
+      else if (act === 'eq-add') { await eqAdd(b.closest('.eqbar')); return; }
       else if (act === 'inv-apply' || act === 'sh-apply') {
         var shl = act === 'sh-apply', S2 = shl ? SS : IS;
         var ie = collectInvEdits().concat(collectAdds(), collectWeaponEdits()); if (!ie.length) { toast('No changes to apply'); return; }
         var isrc = S2.src === 'live' ? saveDir : j(j(bakDir, S2.src), 'data'), plan = await planInv(isrc, ie);
-        var lines = ie.slice(0, 14).map(function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')' : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
+        var lines = ie.slice(0, 14).map(function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.mag ? ', with ' + Tres.itemName(e.mag) : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
         if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
         var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\n\nAdding items is experimental. It has worked in testing, but keep your original snapshot and test the copy before relying on it.' : '');
         var sum = [plan.added ? plan.added + ' added' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed' + ' (including anything stored inside them)' : ''].filter(Boolean).join(', ');
@@ -1173,6 +1239,10 @@
     var cw = ev.target.dataset && ev.target.dataset.w;
     if (cw === 'q') { qUpdate(ev.target.closest('.snap')); return; }
     if (cw === 'wopt') { wbSync(ev.target.closest('tr.wrow'), false); return; }
+    var eb0 = ev.target.closest('.eqbar');
+    if (eb0) { if (ev.target.classList.contains('eqslot')) fillEqItems(eb0); else if (ev.target.classList.contains('eqitem')) fillEqMag(eb0, false); return; }
+    if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }
+    if (cw === 'r') { var rtr = ev.target.closest('tr'), rbx = rtr && rtr.dataset.slot ? document.querySelector('.eqs[data-slot="' + rtr.dataset.slot + '"]') : null; if (rbx) rbx.classList.toggle('rm', ev.target.checked); }
     if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC || row.dataset.wp ? 0 : 1, nn)); }
     if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; TS.edit = false; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; IS.edit = false; render(); } if (ev.target.id === 'ssrc') { SS.src = ev.target.value; SS.edit = false; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 

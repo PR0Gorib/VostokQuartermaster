@@ -92,3 +92,7 @@ tr.flash td{background:#2a3a2f}
 .gi.flashgi{outline:2px solid var(--text);outline-offset:-2px;z-index:2}
 .cgwrap .gi,.itm tr[data-ks]{cursor:pointer}
 .wrow td{background:#18201f}.wrow .fgrid{margin:8px 0 4px}
+.eqs.eqe{cursor:pointer;border-style:dashed}.eqs.eqe:hover{border-color:var(--text)}
+.eqs.new{border-color:var(--ok);background:#1b2a22}.eqs.rm{opacity:.45;border-color:var(--rust)}
+.eqx{position:absolute;left:2px;top:2px;z-index:3;padding:0 5px;font-size:13px;line-height:16px;background:#0e1415}
+.eqbar{margin-top:8px}.eqbar select{max-width:100%}

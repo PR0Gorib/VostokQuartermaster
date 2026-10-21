@@ -311,7 +311,7 @@
     ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
   function eqBarHtml() {
     return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
-      '<select class="eqitem" disabled><option value="">Choose a slot first</option></select><select class="eqmag" title="Magazine to load" hidden></select><button data-act="eq-add">Equip</button><span class="meta amsg"></span></div>';
+      '<select class="eqitem" disabled><option value="">Choose a slot first</option></select><button data-act="eq-add">Equip</button><div class="eqatt" hidden></div><span class="meta amsg"></span></div>';
   }
   // base-game items allowed in each equipment slot, from the item definitions (built once)
   async function slotItems(slot) {
@@ -327,7 +327,7 @@
   }
   async function fillEqItems(bar) {
     var sel = bar.querySelector('.eqitem'), slot = bar.querySelector('.eqslot').value, msg = bar.querySelector('.amsg');
-    msg.textContent = ''; fillEqMag(bar, true); sel.disabled = true; sel.innerHTML = '<option value="">' + (slot ? 'Loading...' : 'Choose a slot first') + '</option>';
+    msg.textContent = ''; fillEqAtt(bar, true); sel.disabled = true; sel.innerHTML = '<option value="">' + (slot ? 'Loading...' : 'Choose a slot first') + '</option>';
     if (!slot) return;
     if (!gameDir) { sel.innerHTML = '<option value="">Game folder needed</option>'; msg.textContent = 'Set the game folder in Settings first: the allowed items come from the game files.'; return; }
     try { await iconPack(); } catch (e) { sel.innerHTML = '<option value="">Unavailable</option>'; msg.textContent = 'Could not read the game files.'; return; }
@@ -336,16 +336,16 @@
     sel.disabled = !items.length;
   }
   // a weapon is equipped with one of its magazines loaded (the game's own compatible list)
-  async function fillEqMag(bar, clear) {
-    var ms = bar.querySelector('.eqmag'); ms.hidden = true; ms.innerHTML = ''; if (clear) return;
+  async function fillEqAtt(bar, clear) {
+    var box = bar.querySelector('.eqatt'); box.hidden = true; box.innerHTML = ''; if (clear) return;
     var path = bar.querySelector('.eqitem').value; if (!path) return;
-    var wd = await Pck.itemDef(IC.pack, path); if (!wd || !wd.ok || wd.type !== 'Weapon') return;
-    var mags = [], seen = {}, add = async function (pp) { if (seen[pp]) return; var d = await Pck.itemDef(IC.pack, pp); if (d && d.ok && d.subtype === 'Magazine') { seen[pp] = true; mags.push({ path: pp, max: d.maxAmount || 0 }); } };
-    for (var c of wd.compatible) await add(c);
-    if (XMAGS) for (var m of await sameAmmoMags(wd.ammo)) await add(m.path);
-    if (!mags.length) return;
-    ms.innerHTML = mags.map(function (m) { return '<option value="' + esc(m.path) + '" data-max="' + m.max + '">' + esc(Tres.itemName(m.path) + ' (' + m.max + ' rounds)') + '</option>'; }).join('') + '<option value="" data-max="0">No magazine</option>';
-    ms.hidden = false;
+    var wd = await Pck.itemDef(IC.pack, path); if (!wd || !wd.ok) return;
+    var cg = await compatGroups(wd, []); if (!cg.names.length) return;
+    box.innerHTML = cg.names.map(function (c) {
+      var mag = c === 'Magazine', opts = cg.groups[c].map(function (o, i) { return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (mag && i === 0 ? ' selected' : '') + '>' + esc(optLabel(c, o)) + '</option>'; }).join('');
+      return '<label class="eqf">' + esc(c) + ' <select data-cat="' + esc(c) + '">' + (mag ? opts + '<option value="" data-max="0">None</option>' : '<option value="">None</option>' + opts) + '</select></label>';
+    }).join('');
+    box.hidden = false;
   }
   async function eqAdd(bar) {
     var msg = bar.querySelector('.amsg'), say = function (t) { msg.textContent = t; }; say('');
@@ -356,10 +356,12 @@
     if (used && !used.querySelector('[data-w="r"]').checked) return say('The ' + slot.replace('_', ' ') + ' slot is in use. Remove its item first (the \u00d7 on the slot).');
     if (document.querySelector('#view tr.ea[data-slot="' + slot + '"]')) return say('This slot already has a pending item. Cancel it first.');
     var def = await Pck.itemDef(IC.pack, path); if (!def || !def.ok) return say('Could not read this item from the game files.');
-    var ms = bar.querySelector('.eqmag'), mag = !ms.hidden ? ms.value : '', mmax = !ms.hidden && ms.value ? +ms.options[ms.selectedIndex].dataset.max || 0 : 0;
-    var amount = def.type === 'Weapon' ? (ms.hidden ? def.magazineSize : mmax) : (def.stackable ? Math.min(def.defaultAmount || 1, def.maxAmount > 0 ? def.maxAmount : (def.defaultAmount || 1)) : (def.showAmount ? (def.defaultAmount || def.maxAmount || 1) : def.defaultAmount));
+    var sels = Array.prototype.slice.call(bar.querySelectorAll('.eqatt select')), att = sels.map(function (x) { return x.value; }).filter(Boolean);
+    var ms = bar.querySelector('.eqatt select[data-cat="Magazine"]'), mmax = ms && ms.value ? +ms.options[ms.selectedIndex].dataset.max || 0 : 0;
+    var amount = def.type === 'Weapon' ? (ms ? mmax : def.magazineSize) : (def.stackable ? Math.min(def.defaultAmount || 1, def.maxAmount > 0 ? def.maxAmount : (def.defaultAmount || 1)) : (def.showAmount ? (def.defaultAmount || def.maxAmount || 1) : def.defaultAmount));
     var aid = 'a' + (++AID), cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path), tb = bar.closest('.cbody').querySelector('table.itm tbody');
-    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + EQ_CID + '" data-cname="Equipment" data-slot="' + esc(slot) + '" data-mag="' + esc(mag) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="0" data-gy="0" data-rot="0" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">' + esc(slot.replace('_', ' ')) + ' slot' + (mag ? ' &middot; ' + esc(Tres.itemName(mag)) + ' loaded' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (amount || '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    var attNames = att.map(function (a) { return Tres.itemName(a); }).join(', ');
+    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + EQ_CID + '" data-cname="Equipment" data-slot="' + esc(slot) + '" data-att="' + esc(att.join('|')) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="0" data-gy="0" data-rot="0" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">' + esc(slot.replace('_', ' ')) + ' slot' + (attNames ? ' &middot; ' + esc(attNames) : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (amount || '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
     box.dataset.old = box.innerHTML; box.dataset.oldc = box.className; box.dataset.aid = aid; box.className = 'eqs has new';
     box.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '<span class="eqn">' + esc(nm) + '</span>';
     bar.querySelector('.eqslot').value = ''; fillEqItems(bar);
@@ -410,7 +412,8 @@
       var d; try { d = await Pck.itemDef(IC.pack, tr.dataset.path); } catch (e) { d = null; }
       if (!d || !d.ok) continue;
       var ed = tr.classList.contains('er'), cc = tr.querySelector('.cc'), qc = tr.querySelector('.qc');
-      if (ed && d.type === 'Weapon' && !tr.querySelector('[data-act="wp-open"]')) { tr.dataset.wp = '1'; var lt = tr.lastElementChild; if (lt) lt.insertAdjacentHTML('beforeend', ' <button data-act="wp-open" title="Change the magazine, attachments and chamber">Weapon&hellip;</button>'); var wq = tr.querySelector('[data-w="a"]'); if (wq) wq.min = 0; }
+      var wkind = d.type === 'Weapon' ? 'Weapon' : (d.slots || []).indexOf('Rig') !== -1 ? 'Plates' : (d.slots || []).indexOf('Player') !== -1 ? 'Cassette' : '';
+      if (ed && wkind && !tr.querySelector('[data-act="wp-open"]')) { var lt = tr.lastElementChild; if (lt) lt.insertAdjacentHTML('beforeend', ' <button data-act="wp-open" title="' + (wkind === 'Weapon' ? 'Change the magazine, attachments and chamber' : 'Change what is fitted to this item') + '">' + wkind + '&hellip;</button>'); if (wkind === 'Weapon') { tr.dataset.wp = '1'; var wq = tr.querySelector('[data-w="a"]'); if (wq) wq.min = 0; } }
       if (cc && !d.showCondition) cc.innerHTML = '<span class="meta" title="The game does not use a condition for this item">' + (ed ? 'n/a' : '\u2013') + '</span>';
       if (qc && !d.showAmount) qc.innerHTML = ed ? '<span class="meta" title="The game does not use a quantity for this item">n/a</span>' : '';
       else if (qc && d.maxAmount) { var qi = qc.querySelector('input'); if (qi) { qi.max = d.maxAmount; if (+qi.value > d.maxAmount) qi.value = d.maxAmount; } }
@@ -716,7 +719,7 @@
     tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
   }
   function collectAdds() {
-    return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', mag: d.mag || '' }; });
+    return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', att: (d.att || '').split('|').filter(Boolean) }; });
   }
   // a new SlotData entry, written in the game's own property order
   function addSlot(t, e, before) {
@@ -749,23 +752,39 @@
     }
     return IC.mags.filter(function (m) { return m.def.compatible.indexOf(ammo) !== -1; });
   }
+  var WB_FIXED = ['Magazine', 'Optic', 'Muzzle', 'Laser'];
+  function groupOf(d, wd) { var g = d.subtype || (d.type !== 'Weapon' ? d.type : ''); return !g || (wd.type === 'Weapon' && WB_FIXED.indexOf(g) === -1) ? '' : g; }
+  // options per group from the item's own "compatible" list (plus, if enabled, magazines of the same ammo); cur = paths already in it
+  async function compatGroups(wd, cur) {
+    var groups = {}, seen = {}, curBy = {}, p, d, g;
+    var add = async function (path, same) { if (seen[path]) return; var dd = await Pck.itemDef(IC.pack, path); if (!dd || !dd.ok) return; var gg = groupOf(dd, wd); if (!gg) return; seen[path] = true; (groups[gg] = groups[gg] || []).push({ path: path, d: dd, same: same }); };
+    for (p of wd.compatible) await add(p, false);
+    if (XMAGS && wd.type === 'Weapon') for (var m of await sameAmmoMags(wd.ammo)) await add(m.path, true);
+    for (p of cur || []) {
+      d = await Pck.itemDef(IC.pack, p); if (!d || !d.ok) continue; g = groupOf(d, wd); if (!g) continue;
+      (curBy[g] = curBy[g] || []).push(p);
+      if (!seen[p]) { seen[p] = true; (groups[g] = groups[g] || []).push({ path: p, d: d, same: false, off: true }); }
+    }
+    var names = Object.keys(groups).sort(function (a, b) { var ia = WB_FIXED.indexOf(a), ib = WB_FIXED.indexOf(b); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); });
+    return { groups: groups, curBy: curBy, names: names };
+  }
+  function optLabel(c, o) { return Tres.itemName(o.path) + (c === 'Magazine' && o.d.maxAmount ? ' (' + o.d.maxAmount + ' rounds)' : '') + (o.same ? ' - same ammo' : '') + (o.off ? ' - not on the game\'s list' : ''); }
   async function wbHtml(tr) {
     var wd = await Pck.itemDef(IC.pack, tr.dataset.path);
-    if (!wd || !wd.ok || wd.type !== 'Weapon') return null;
-    var cur = (tr.dataset.nested || '').split('|').filter(Boolean), groups = { Magazine: [], Optic: [], Muzzle: [], Laser: [] }, seen = {}, curBy = {}, p, d;
-    var add = async function (path, same) { if (seen[path]) return; var dd = await Pck.itemDef(IC.pack, path); if (!dd || !dd.ok || !groups[dd.subtype]) return; seen[path] = true; groups[dd.subtype].push({ path: path, d: dd, same: same }); };
-    for (p of wd.compatible) await add(p, false);
-    if (XMAGS) for (var m of await sameAmmoMags(wd.ammo)) await add(m.path, true);
-    for (p of cur) { d = await Pck.itemDef(IC.pack, p); if (d && d.ok && groups[d.subtype]) { curBy[d.subtype] = p; if (!seen[p]) { seen[p] = true; groups[d.subtype].push({ path: p, d: d, same: false, off: true }); } } }
-    var hasMag = groups.Magazine.length > 0;
-    var fields = ['Magazine', 'Optic', 'Muzzle', 'Laser'].filter(function (c) { return groups[c].length; }).map(function (c) {
-      return '<label class="fld"><span>' + c + '</span><select data-w="wopt" data-cat="' + c + '" data-init="' + esc(curBy[c] || '') + '"><option value="">None</option>' + groups[c].map(function (o) {
-        return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (o.path === curBy[c] ? ' selected' : '') + '>' + esc(Tres.itemName(o.path) + (c === 'Magazine' && o.d.maxAmount ? ' (' + o.d.maxAmount + ' rounds)' : '') + (o.same ? ' - same ammo' : '') + (o.off ? ' - not on the game\'s list' : '')) + '</option>';
-      }).join('') + '</select></label>';
+    if (!wd || !wd.ok) return null;
+    var isW = wd.type === 'Weapon', cur = (tr.dataset.nested || '').split('|').filter(Boolean), cg = await compatGroups(wd, cur), hasMag = !!cg.groups.Magazine;
+    var fields = cg.names.map(function (c) {
+      var inits = cg.curBy[c] && cg.curBy[c].length ? cg.curBy[c] : [''];
+      return inits.map(function (init) {
+        return '<label class="fld"><span>' + esc(c) + '</span><select data-w="wopt" data-cat="' + esc(c) + '" data-init="' + esc(init) + '"><option value="">None</option>' + cg.groups[c].map(function (o) {
+          return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (o.path === init ? ' selected' : '') + '>' + esc(optLabel(c, o)) + '</option>';
+        }).join('') + '</select></label>';
+      }).join('');
     }).join('');
-    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="meta">' + esc(Tres.itemName(tr.dataset.path)) + ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') + '</div>' +
-      '<div class="fgrid">' + fields + '<label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label></div>' +
-      '<div class="meta">Rounds loaded: use the Qty box in the item row (it follows the magazine size). Choices are what the game lists as compatible' + (XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></td></tr>';
+    if (!fields && !isW) return '<tr class="wrow"><td colspan="5"><div class="meta">Nothing to choose for ' + esc(Tres.itemName(tr.dataset.path)) + ' in the game data.</div></td></tr>';
+    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="meta">' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
+      '<div class="fgrid">' + fields + (isW ? '<label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label>' : '') + '</div>' +
+      '<div class="meta">' + (isW ? 'Rounds loaded: use the Qty box in the item row (it follows the magazine size). ' : '') + 'Choices are what the game lists as compatible' + (isW && XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></td></tr>';
   }
   // keeps the Qty box (rounds loaded) in line with the chosen magazine
   function wbSync(w, initial) {
@@ -829,7 +848,7 @@
         var toInv = e.cid === INV_CID, toEq = e.cid === EQ_CID, toMain = toInv || toEq, cb = toMain ? t.main() : t.subById(e.cid), key = toInv ? 'inventory' : toEq ? 'equipment' : 'storage';
         if (!cb || gone[e.cid] || (toMain && t.get(cb, key) === undefined)) throw new Error('The container "' + e.cname + '" was not found in ' + f + ' (the save may have changed since this page was loaded)');
         var nid = addSlot(t, e, cb);
-        if (e.mag) t.appendRef(t.subById(nid), 'nested', 'ExtResource("' + t.extFor(e.mag, 'Resource') + '")');
+        (e.att || []).forEach(function (ap) { t.appendRef(t.subById(nid), 'nested', 'ExtResource("' + t.extFor(ap, 'Resource') + '")'); });
         if (t.get(cb, key) === undefined) t.insert(cb, 'storage', 'Array[ExtResource("' + t.extFor('res://Scripts/SlotData.gd', 'Script') + '")]([SubResource("' + nid + '")])');
         else t.appendRef(cb, key, 'SubResource("' + nid + '")');
         added++; addedHere = true;
@@ -1187,7 +1206,7 @@
         var shl = act === 'sh-apply', S2 = shl ? SS : IS;
         var ie = collectInvEdits().concat(collectAdds(), collectWeaponEdits()); if (!ie.length) { toast('No changes to apply'); return; }
         var isrc = S2.src === 'live' ? saveDir : j(j(bakDir, S2.src), 'data'), plan = await planInv(isrc, ie);
-        var lines = ie.slice(0, 14).map(function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.mag ? ', with ' + Tres.itemName(e.mag) : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
+        var lines = ie.slice(0, 14).map(function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.att && e.att.length ? ', with ' + e.att.map(function (a) { return Tres.itemName(a); }).join(', ') : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
         if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
         var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\n\nAdding items is experimental. It has worked in testing, but keep your original snapshot and test the copy before relying on it.' : '');
         var sum = [plan.added ? plan.added + ' added' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed' + ' (including anything stored inside them)' : ''].filter(Boolean).join(', ');
@@ -1217,7 +1236,7 @@
         if (wn && wn.classList.contains('wrow')) { wn.hidden = !wn.hidden; return; }
         if (!gameDir) { toast('Set the game folder in Settings first'); return; }
         await iconPack();
-        var wh = await wbHtml(wtr); if (!wh) { toast('Could not read this weapon from the game files'); return; }
+        var wh = await wbHtml(wtr); if (!wh) { toast('Could not read this item from the game files'); return; }
         wtr.insertAdjacentHTML('afterend', wh); wbSync(wtr.nextElementSibling, true); return;
       }
       else if (act === 'chkupd') { await checkUpdate(true); }
@@ -1240,7 +1259,7 @@
     if (cw === 'q') { qUpdate(ev.target.closest('.snap')); return; }
     if (cw === 'wopt') { wbSync(ev.target.closest('tr.wrow'), false); return; }
     var eb0 = ev.target.closest('.eqbar');
-    if (eb0) { if (ev.target.classList.contains('eqslot')) fillEqItems(eb0); else if (ev.target.classList.contains('eqitem')) fillEqMag(eb0, false); return; }
+    if (eb0) { if (ev.target.classList.contains('eqslot')) fillEqItems(eb0); else if (ev.target.classList.contains('eqitem')) fillEqAtt(eb0, false); return; }
     if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }
     if (cw === 'r') { var rtr = ev.target.closest('tr'), rbx = rtr && rtr.dataset.slot ? document.querySelector('.eqs[data-slot="' + rtr.dataset.slot + '"]') : null; if (rbx) rbx.classList.toggle('rm', ev.target.checked); }
     if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC || row.dataset.wp ? 0 : 1, nn)); }

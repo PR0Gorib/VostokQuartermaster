@@ -25,6 +25,7 @@
     "fs:allow-read", 
     "fs:allow-seek", 
     "fs:allow-fstat",
+    "core:window:allow-destroy",
     {
       "identifier": "fs:scope",
       "allow": [

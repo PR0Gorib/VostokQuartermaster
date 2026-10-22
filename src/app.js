@@ -298,7 +298,7 @@
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n, kids = g[k].ids;
       var ed = EDIT_ON && s.sid;
-      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.attp && s.attp.length ? ' data-nested="' + esc(s.attp.join('|')) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') + ' data-chi="' + (s.chamber ? 1 : 0) + '"' : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr' + (s.cat ? ' data-cat="' + esc(s.cat) + '"' : '') + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.attp && s.attp.length ? ' data-nested="' + esc(s.attp.join('|')) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') + ' data-chi="' + (s.chamber ? 1 : 0) + '"' : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
@@ -361,7 +361,7 @@
     var amount = def.type === 'Weapon' ? (ms ? mmax : def.magazineSize) : (def.stackable ? Math.min(def.defaultAmount || 1, def.maxAmount > 0 ? def.maxAmount : (def.defaultAmount || 1)) : (def.showAmount ? (def.defaultAmount || def.maxAmount || 1) : def.defaultAmount));
     var aid = 'a' + (++AID), cond = def.showCondition || (def.carrier && att.length) ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path), tb = bar.closest('.cbody').querySelector('table.itm tbody');
     var attNames = att.map(function (a) { return Tres.itemName(a); }).join(', ');
-    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + EQ_CID + '" data-cname="Equipment" data-slot="' + esc(slot) + '" data-att="' + esc(att.join('|')) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="0" data-gy="0" data-rot="0" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">' + esc(slot.replace('_', ' ')) + ' slot' + (attNames ? ' &middot; ' + esc(attNames) : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (cond ? cond + '%' : '\u2013') + '</td><td>' + (amount || '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    placeRow(tb, '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + EQ_CID + '" data-cname="Equipment" data-slot="' + esc(slot) + '" data-att="' + esc(att.join('|')) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="0" data-gy="0" data-rot="0" data-amt="' + amount + '" data-cond="' + cond + '" data-cat="' + esc(cat) + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">' + esc(slot.replace('_', ' ')) + ' slot' + (attNames ? ' &middot; ' + esc(attNames) : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (cond ? cond + '%' : '\u2013') + '</td><td>' + (amount || '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
     box.dataset.old = box.innerHTML; box.dataset.oldc = box.className; box.dataset.aid = aid; box.className = 'eqs has new';
     box.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '<span class="eqn">' + esc(nm) + '</span>';
     bar.querySelector('.eqslot').value = ''; fillEqItems(bar);
@@ -397,9 +397,21 @@
       }
     }
   }
-  var INV_CID = '__inv', EQ_CID = '__eq', INV_W = 8, INV_H = 13;   // the carried inventory: 8 columns x 13 rows, stored in the character's own inventory list
+  var INV_CID = '__inv', EQ_CID = '__eq', INV_W = 8, INV_H = 13;
+  function eqIdx(slot) { for (var i = 0; i < EQ_LAYOUT.length; i++) if (EQ_LAYOUT[i][0] === slot) return i; return 99; }
+  // puts a new (pending) row where it will be listed after saving: equipment by slot (right below the item it replaces), other lists by category and name
+  function placeRow(tb, html) {
+    var tmp = document.createElement('tbody'); tmp.innerHTML = html; var nr = tmp.firstElementChild; if (!nr) return;
+    var isEq = nr.dataset.cid === EQ_CID, newKey = isEq ? eqIdx(nr.dataset.slot) * 2 + 1 : 0, ref = null;
+    for (var r of Array.prototype.slice.call(tb.children)) {
+      if (r.classList.contains('wrow')) continue;   // belongs to the row before it
+      var after = isEq ? eqIdx(r.dataset.slot || '') * 2 + (r.classList.contains('ea') ? 1 : 0) > newKey : ((r.dataset.cat || '').localeCompare(nr.dataset.cat || '') || (r.dataset.name || '').localeCompare(nr.dataset.name || '')) > 0;
+      if (after) { ref = r; break; }
+    }
+    tb.insertBefore(nr, ref);
+  }   // the carried inventory: 8 columns x 13 rows, stored in the character's own inventory list
   function charHtml(t, m, ext) {
-    var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment');
+    var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment').filter(Boolean).sort(function (a, b) { return eqIdx(a.slot) - eqIdx(b.slot); });
     CUR_CID = INV_CID; var inv = map('inventory'); CUR_CID = '';
     return '<h2>Character</h2><h3>Equipped</h3><div class="cbody"><div class="ctab">' + itemTable(rowsHtml(eq, false)) + '</div><div class="cgwrap">' + eqPanelHtml(eq) + (EDIT_ON ? eqBarHtml() : '') + '</div></div><h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' +
       '<div class="carried">' + (EDIT_ON ? addBarHtml(CUR_FILE, INV_CID, INV_W, INV_H, 'Carried items') : '') + '<div class="cbody"><div class="ctab">' + itemTable(rowsHtml(inv, true), EDIT_ON) + '</div><div class="cgwrap">' + gridHtml({ dims: [INV_W, INV_H], items: inv }) + '</div></div></div>';
@@ -455,6 +467,7 @@
   var CELL = 64;  // grid positions in the save are cell index x 64
   // Items from mods are not in the game files, so their grid size is unknown. The user tells us once; it is remembered.
   var MODSZ = (function () { try { return JSON.parse(localStorage.getItem('modsizes') || '{}') || {}; } catch (e) { return {}; } })();
+  var WARN = localStorage.getItem('warnunsaved') !== '0', noWarnOnce = false;   // warn about changes that are not in an edited copy yet
   var XMAGS = localStorage.getItem('xmags') === '1';   // offer magazines of other weapons with the same ammo (needs a cross-compatibility mod)
   function saveModSizes() { localStorage.setItem('modsizes', JSON.stringify(MODSZ)); }
   async function sizeFor(path) {
@@ -468,6 +481,19 @@
     if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 12 || +m[2] > 16) return null;
     MODSZ[path] = [+m[1], +m[2]]; saveModSizes(); return MODSZ[path];
   }
+  function warnSettingHtml() {
+    return '<div class="set"><h4>Unsaved changes</h4><label class="ab-check"><input type="checkbox" id="warnunsaved"' + (WARN ? ' checked' : '') + '> Warn me when I leave a page or close the app with changes that are not in an edited copy yet</label></div>';
+  }
+  // how many edits are waiting on the current page (anything that cannot be read counts as pending)
+  function pendingChanges() {
+    try {
+      if ((page === 'inventory' && IS.edit) || (page === 'shelter' && SS.edit)) return collectInvEdits().length + collectAdds().length + collectWeaponEdits().length;
+      if (page === 'edit') return collectEdits().length;
+      if (page === 'traders' && TS.edit) return collectQuestEdits().length;
+    } catch (e) { return 1; }
+    return 0;
+  }
+  async function leaveOk() { return !WARN || !pendingChanges() || !!(await ask('Unsaved changes', 'You have changes on this page that are not in an edited copy yet. If you leave now they are lost.', { ok: 'Leave anyway' })); }
   function magSettingHtml() {
     return '<div class="set"><h4>Weapon editor</h4><label class="ab-check"><input type="checkbox" id="xmags"' + (XMAGS ? ' checked' : '') + '> Also offer magazines of other weapons that use the same ammo</label><p class="mt nb">The base game only lets a weapon take the magazines it lists. Turn this on only if you use a magazine cross-compatibility mod.</p></div>';
   }
@@ -660,7 +686,7 @@
     spots.forEach(function (slot, i) {
       var aid = 'a' + (++AID), amount = amounts[i];
       if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
-      tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+      placeRow(tb, '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-cat="' + esc(cat) + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
     });
     bar.querySelector('.aitem').value = ''; bar.querySelector('.aqty').value = '';
     say('Added ' + spots.length + (spots.length === 1 ? ' item' : ' items') + (def.stackable && spots.length > 1 ? ' (stacks of up to ' + cap + ')' : '') + '. It is saved only when you create the edited copy.');
@@ -719,7 +745,7 @@
   function addNewRow(bar, tb, gridEl, path, def, slot, amount) {
     var aid = 'a' + (++AID), cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path);
     if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
-    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    placeRow(tb, '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-cat="' + esc(cat) + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
   }
   function collectAdds() {
     return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', att: (d.att || '').split('|').filter(Boolean) }; });
@@ -1102,7 +1128,7 @@
       '<div class="set"><h4>Game folder</h4><p>' + esc(gameDir || 'Not set') + (GD_AUTO ? ' (found automatically)' : '') + '</p><button data-act="pickgame">Choose&hellip;</button><p class="mt">Used for item icons and to check which mods are installed (the <b>mods</b> folder inside it). Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
-      modSizeHtml() + magSettingHtml() +
+      modSizeHtml() + magSettingHtml() + warnSettingHtml() +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
       '<div class="set about"><h4>About</h4>' +
@@ -1151,7 +1177,7 @@
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
     var nb = ev.target.closest('#nav button[data-page]');
-    if (nb) { page = nb.dataset.page; if (page !== 'settings') IC.fail = ''; IS.edit = false; SS.edit = false; TS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
+    if (nb) { if (nb.dataset.page !== page && !(await leaveOk())) return; page = nb.dataset.page; if (page !== 'settings') IC.fail = ''; IS.edit = false; SS.edit = false; TS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
     var flashRow = function (tr) { tr.scrollIntoView({ block: 'center', behavior: 'smooth' }); tr.classList.add('flash'); setTimeout(function () { tr.classList.remove('flash'); }, 1400); };
     var es = ev.target.closest('.eqs.has');
     if (es && !ev.target.closest('[data-act]')) { var er = document.querySelector('#view tr[data-slot="' + es.dataset.slot + '"]'); if (er) flashRow(er); return; }
@@ -1273,12 +1299,15 @@
     }
     render();
   });
-  document.addEventListener('change', function (ev) {
+  document.addEventListener('change', async function (ev) {
+    var srcMap = { esrc: ES, tsrc: TS, isrc: IS, ssrc: SS }, sm = srcMap[ev.target.id];
+    if (sm && !(await leaveOk())) { ev.target.value = sm.src; return; }
     var cw = ev.target.dataset && ev.target.dataset.w;
     if (cw === 'q') { qUpdate(ev.target.closest('.snap')); return; }
     if (cw === 'wopt') { var ww = ev.target.closest('tr.wrow'); wsUpdate(ev.target); wbSync(ww, false); var wr = ww.previousElementSibling; if (wr && wr.dataset.rig === '1') { var wcc = wr.querySelector('.cc'), wp = Array.prototype.some.call(ww.querySelectorAll('select[data-w="wopt"]'), function (x) { return !!x.value; }); if (wcc && !wcc.querySelector('input')) wcc.innerHTML = wp ? '<span class="meta">100% on saving</span>' : '<span class="meta">n/a</span>'; else if (wcc) { var ci = wcc.querySelector('input'); if (ci) { var wasP = wr.dataset.plated === '1'; if (wp && !wasP) ci.value = 100; if (!wp) ci.value = 0; } } } return; }
     var eb0 = ev.target.closest('.eqbar');
     if (eb0) { if (ev.target.classList.contains('eqslot')) fillEqItems(eb0); else if (ev.target.classList.contains('eqitem')) fillEqAtt(eb0, false); return; }
+    if (ev.target.id === 'warnunsaved') { WARN = ev.target.checked; localStorage.setItem('warnunsaved', WARN ? '1' : '0'); toast(WARN ? 'You will be warned about unsaved changes' : 'Warnings about unsaved changes are off'); return; }
     if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }
     if (cw === 'r') { var rtr = ev.target.closest('tr'), rbx = rtr && rtr.dataset.slot ? document.querySelector('.eqs[data-slot="' + rtr.dataset.slot + '"]') : null; if (rbx) rbx.classList.toggle('rm', ev.target.checked); }
     if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC || row.dataset.wp ? 0 : 1, nn)); }
@@ -1308,6 +1337,16 @@
       await fs.mkdir(bakDir, { recursive: true });
       await startWatch();
     } catch (e) { toast('Startup error: ' + e); }
+    try {
+      var cw0 = window.__TAURI__.window.getCurrentWindow();
+      cw0.onCloseRequested(async function (ev) {
+        if (noWarnOnce || !WARN || !pendingChanges()) return;
+        ev.preventDefault();
+        var okQuit = await ask('Quit with unsaved changes?', 'You have changes that are not in an edited copy yet. If you quit now they are lost.', { ok: 'Quit anyway' });
+        if (!okQuit) return;
+        try { await cw0.destroy(); } catch (e) { noWarnOnce = true; toast('Could not close from here: ' + e + '. Click the window close button again.'); }
+      });
+    } catch (e) { /* no window API: nothing to warn about */ }
     render();
   })();
 })();

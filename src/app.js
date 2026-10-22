@@ -776,18 +776,32 @@
     var wd = await Pck.itemDef(IC.pack, tr.dataset.path);
     if (!wd || !wd.ok) return null;
     var isW = wd.type === 'Weapon', cur = (tr.dataset.nested || '').split('|').filter(Boolean), cg = await compatGroups(wd, cur), hasMag = !!cg.groups.Magazine;
-    var fields = cg.names.map(function (c) {
-      var inits = cg.curBy[c] && cg.curBy[c].length ? cg.curBy[c] : [''];
-      return inits.map(function (init) {
-        return '<label class="fld"><span>' + esc(c) + '</span><select data-w="wopt" data-cat="' + esc(c) + '" data-init="' + esc(init) + '"><option value="">None</option>' + cg.groups[c].map(function (o) {
-          return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (o.path === init ? ' selected' : '') + '>' + esc(optLabel(c, o)) + '</option>';
-        }).join('') + '</select></label>';
-      }).join('');
+    // the build screen: the item in the middle, one box per fitting around it (the real <select> sits invisibly over its box)
+    var POS = ['top', 'right', 'bottom', 'left', 'tl', 'tr', 'bl', 'br'], prefer = { Optic: 'top', Muzzle: 'right', Magazine: 'bottom', Laser: 'left' }, slots = [], taken = {};
+    cg.names.forEach(function (c) { var inits = cg.curBy[c] && cg.curBy[c].length ? cg.curBy[c] : ['']; inits.forEach(function (init) { slots.push({ c: c, init: init, pos: '' }); }); });
+    slots.forEach(function (sl) { if (prefer[sl.c] && !taken[prefer[sl.c]]) { sl.pos = prefer[sl.c]; taken[sl.pos] = true; } });
+    slots.forEach(function (sl) { if (!sl.pos) { var free = POS.filter(function (x) { return !taken[x]; })[0]; sl.pos = free || 'br'; taken[sl.pos] = true; } });
+    var boxes = slots.map(function (sl) {
+      var c = sl.c;
+      return '<div class="wslot wp-' + sl.pos + (sl.init ? ' has' : '') + '"><span class="wsl">' + esc(c) + '</span><span class="wsi">' + (sl.init ? '<img data-ic="' + esc(sl.init) + '" alt="" hidden>' : '') + '</span><span class="wsn">' + (sl.init ? esc(Tres.itemName(sl.init)) : 'None') + '</span>' +
+        '<select data-w="wopt" data-cat="' + esc(c) + '" data-init="' + esc(sl.init) + '" title="' + esc(c) + '"><option value="">None</option>' + cg.groups[c].map(function (o) {
+          return '<option value="' + esc(o.path) + '" data-max="' + (o.d.maxAmount || 0) + '"' + (o.path === sl.init ? ' selected' : '') + '>' + esc(optLabel(c, o)) + '</option>';
+        }).join('') + '</select></div>';
     }).join('');
-    if (!fields && !isW) return '<tr class="wrow"><td colspan="5"><div class="meta">Nothing to choose for ' + esc(Tres.itemName(tr.dataset.path)) + ' in the game data.</div></td></tr>';
+    if (!boxes && !isW) return '<tr class="wrow"><td colspan="5"><div class="meta">Nothing to choose for ' + esc(Tres.itemName(tr.dataset.path)) + ' in the game data.</div></td></tr>';
     return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="meta">' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
-      '<div class="fgrid">' + fields + (isW ? '<label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label>' : '') + '</div>' +
-      '<div class="meta">' + (isW ? 'Rounds loaded: use the Qty box in the item row (it follows the magazine size). ' : '') + 'Choices are what the game lists as compatible' + (isW && XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></td></tr>';
+      '<div class="wbuild"><div class="wcenter"><img data-ic="' + esc(tr.dataset.path) + '" alt="" hidden><span class="wcn">' + esc(Tres.itemName(tr.dataset.path)) + '</span></div>' + boxes + '</div>' +
+      (isW ? '<div class="fgrid"><label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label></div>' : '') +
+      '<div class="meta">Click a box to choose a part. ' + (isW ? 'Rounds loaded: use the Qty box in the item row (it follows the magazine size). ' : '') + 'Choices are what the game lists as compatible' + (isW && XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></td></tr>';
+  }
+  // refreshes a box of the build screen after its choice changed
+  function wsUpdate(sel) {
+    var box = sel.closest('.wslot'); if (!box) return;
+    var v = sel.value, wsi = box.querySelector('.wsi'), im = wsi.querySelector('img');
+    box.classList.toggle('has', !!v); box.classList.toggle('chg', v !== sel.dataset.init);
+    box.querySelector('.wsn').textContent = v ? Tres.itemName(v) : 'None';
+    if (v) { if (!im) { wsi.innerHTML = '<img alt="" hidden>'; im = wsi.querySelector('img'); } im.dataset.ic = v; im.hidden = true; fillIcons(); }
+    else if (im) im.remove();
   }
   // keeps the Qty box (rounds loaded) in line with the chosen magazine
   function wbSync(w, initial) {
@@ -1242,7 +1256,7 @@
         if (!gameDir) { toast('Set the game folder in Settings first'); return; }
         await iconPack();
         var wh = await wbHtml(wtr); if (!wh) { toast('Could not read this item from the game files'); return; }
-        wtr.insertAdjacentHTML('afterend', wh); wbSync(wtr.nextElementSibling, true); return;
+        wtr.insertAdjacentHTML('afterend', wh); wbSync(wtr.nextElementSibling, true); fillIcons(); return;
       }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
@@ -1262,7 +1276,7 @@
   document.addEventListener('change', function (ev) {
     var cw = ev.target.dataset && ev.target.dataset.w;
     if (cw === 'q') { qUpdate(ev.target.closest('.snap')); return; }
-    if (cw === 'wopt') { var ww = ev.target.closest('tr.wrow'); wbSync(ww, false); var wr = ww.previousElementSibling; if (wr && wr.dataset.rig === '1') { var wcc = wr.querySelector('.cc'), wp = Array.prototype.some.call(ww.querySelectorAll('select[data-w="wopt"]'), function (x) { return !!x.value; }); if (wcc && !wcc.querySelector('input')) wcc.innerHTML = wp ? '<span class="meta">100% on saving</span>' : '<span class="meta">n/a</span>'; else if (wcc) { var ci = wcc.querySelector('input'); if (ci) { var wasP = wr.dataset.plated === '1'; if (wp && !wasP) ci.value = 100; if (!wp) ci.value = 0; } } } return; }
+    if (cw === 'wopt') { var ww = ev.target.closest('tr.wrow'); wsUpdate(ev.target); wbSync(ww, false); var wr = ww.previousElementSibling; if (wr && wr.dataset.rig === '1') { var wcc = wr.querySelector('.cc'), wp = Array.prototype.some.call(ww.querySelectorAll('select[data-w="wopt"]'), function (x) { return !!x.value; }); if (wcc && !wcc.querySelector('input')) wcc.innerHTML = wp ? '<span class="meta">100% on saving</span>' : '<span class="meta">n/a</span>'; else if (wcc) { var ci = wcc.querySelector('input'); if (ci) { var wasP = wr.dataset.plated === '1'; if (wp && !wasP) ci.value = 100; if (!wp) ci.value = 0; } } } return; }
     var eb0 = ev.target.closest('.eqbar');
     if (eb0) { if (ev.target.classList.contains('eqslot')) fillEqItems(eb0); else if (ev.target.classList.contains('eqitem')) fillEqAtt(eb0, false); return; }
     if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }

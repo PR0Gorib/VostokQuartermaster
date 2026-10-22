@@ -298,7 +298,7 @@
     return order.map(function (k) {
       var s = g[k].s, n = g[k].n, kids = g[k].ids;
       var ed = EDIT_ON && s.sid;
-      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') + ' data-nested="' + esc(s.attp.join('|')) + '" data-chi="' + (s.chamber ? 1 : 0) + '"' : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
+      return '<tr' + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.attp && s.attp.length ? ' data-nested="' + esc(s.attp.join('|')) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') + ' data-chi="' + (s.chamber ? 1 : 0) + '"' : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
         (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
@@ -359,9 +359,9 @@
     var sels = Array.prototype.slice.call(bar.querySelectorAll('.eqatt select')), att = sels.map(function (x) { return x.value; }).filter(Boolean);
     var ms = bar.querySelector('.eqatt select[data-cat="Magazine"]'), mmax = ms && ms.value ? +ms.options[ms.selectedIndex].dataset.max || 0 : 0;
     var amount = def.type === 'Weapon' ? (ms ? mmax : def.magazineSize) : (def.stackable ? Math.min(def.defaultAmount || 1, def.maxAmount > 0 ? def.maxAmount : (def.defaultAmount || 1)) : (def.showAmount ? (def.defaultAmount || def.maxAmount || 1) : def.defaultAmount));
-    var aid = 'a' + (++AID), cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path), tb = bar.closest('.cbody').querySelector('table.itm tbody');
+    var aid = 'a' + (++AID), cond = def.showCondition || (def.carrier && att.length) ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path), tb = bar.closest('.cbody').querySelector('table.itm tbody');
     var attNames = att.map(function (a) { return Tres.itemName(a); }).join(', ');
-    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + EQ_CID + '" data-cname="Equipment" data-slot="' + esc(slot) + '" data-att="' + esc(att.join('|')) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="0" data-gy="0" data-rot="0" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">' + esc(slot.replace('_', ' ')) + ' slot' + (attNames ? ' &middot; ' + esc(attNames) : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (amount || '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
+    tb.insertAdjacentHTML('beforeend', '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + EQ_CID + '" data-cname="Equipment" data-slot="' + esc(slot) + '" data-att="' + esc(att.join('|')) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="0" data-gy="0" data-rot="0" data-amt="' + amount + '" data-cond="' + cond + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">' + esc(slot.replace('_', ' ')) + ' slot' + (attNames ? ' &middot; ' + esc(attNames) : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (cond ? cond + '%' : '\u2013') + '</td><td>' + (amount || '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
     box.dataset.old = box.innerHTML; box.dataset.oldc = box.className; box.dataset.aid = aid; box.className = 'eqs has new';
     box.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '<span class="eqn">' + esc(nm) + '</span>';
     bar.querySelector('.eqslot').value = ''; fillEqItems(bar);
@@ -373,7 +373,7 @@
     eq.forEach(function (s) { by[String(s.slot).toLowerCase()] = s; });
     var boxes = EQ_LAYOUT.map(function (b) {
       var s = by[b[0].toLowerCase()]; if (s) used[b[0].toLowerCase()] = true;
-      return '<div class="eqs' + (s ? ' has' : (EDIT_ON ? ' eqe' : '')) + '" data-slot="' + esc(b[0]) + '" data-c="' + b[1] + '" data-r="' + b[2] + '" data-w="' + b[3] + '" data-h="' + b[4] + '"' + (s ? ' data-path="' + esc(s.path) + '" data-cond="' + s.cond + '" data-qty="' + s.qty + '" title="' + esc(s.name + ' (' + b[0] + ')') + '"' : ' title="' + esc(b[0]) + ' (empty)"') + '>' +
+      return '<div class="eqs' + (s ? ' has' : (EDIT_ON ? ' eqe' : '')) + '" data-slot="' + esc(b[0]) + '" data-c="' + b[1] + '" data-r="' + b[2] + '" data-w="' + b[3] + '" data-h="' + b[4] + '"' + (s ? ' data-path="' + esc(s.path) + '" data-nested="' + esc((s.attp || []).join('|')) + '" data-cond="' + s.cond + '" data-qty="' + s.qty + '" title="' + esc(s.name + ' (' + b[0] + ')') + '"' : ' title="' + esc(b[0]) + ' (empty)"') + '>' +
         (s ? (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '<span class="eqn">' + esc(s.name) + '</span><span class="eqc"></span><span class="eqa"></span>' + (EDIT_ON && s.sid ? '<button class="eqx" data-act="eq-rm" title="Remove this item">&times;</button>' : '') : '<span class="eql">' + esc(b[0]) + '</span>') + '</div>';
     }).join('');
     var other = eq.filter(function (s) { return !used[String(s.slot).toLowerCase()]; });
@@ -391,7 +391,8 @@
         var d = null; try { d = /^res:\/\/Items\//i.test(el.dataset.path) ? await Pck.itemDef(IC.pack, el.dataset.path) : null; } catch (e) { d = null; }
         if (!d || !d.ok) continue;
         var c = el.querySelector('.eqc'), a = el.querySelector('.eqa'), cond = +el.dataset.cond, qty = +el.dataset.qty;
-        if (d.showCondition) { c.textContent = cond + '%'; c.className = 'eqc ' + (cond >= 50 ? 'ok' : cond >= 25 ? 'warn' : 'bad'); }
+        var platedEq = !!d.carrier && (d.compatible || []).some(function (cp) { return (el.dataset.nested || '').split('|').indexOf(cp) !== -1; });
+        if (d.showCondition || platedEq) { c.textContent = cond + '%'; c.className = 'eqc ' + (cond >= 50 ? 'ok' : cond >= 25 ? 'warn' : 'bad'); }
         if (d.showAmount && qty) a.textContent = qty;
       }
     }
@@ -414,7 +415,9 @@
       var ed = tr.classList.contains('er'), cc = tr.querySelector('.cc'), qc = tr.querySelector('.qc');
       var wkind = d.type === 'Weapon' ? 'Weapon' : (d.slots || []).indexOf('Rig') !== -1 ? 'Plates' : (d.slots || []).indexOf('Player') !== -1 ? 'Cassette' : '';
       if (ed && wkind && !tr.querySelector('[data-act="wp-open"]')) { var lt = tr.lastElementChild; if (lt) lt.insertAdjacentHTML('beforeend', ' <button data-act="wp-open" title="' + (wkind === 'Weapon' ? 'Change the magazine, attachments and chamber' : 'Change what is fitted to this item') + '">' + wkind + '&hellip;</button>'); if (wkind === 'Weapon') { tr.dataset.wp = '1'; var wq = tr.querySelector('[data-w="a"]'); if (wq) wq.min = 0; } }
-      if (cc && !d.showCondition) cc.innerHTML = '<span class="meta" title="The game does not use a condition for this item">' + (ed ? 'n/a' : '\u2013') + '</span>';
+      var plated = !!d.carrier && (d.compatible || []).some(function (c) { return (tr.dataset.nested || '').split('|').indexOf(c) !== -1; });
+      if (d.carrier) { tr.dataset.rig = '1'; tr.dataset.plated = plated ? '1' : '0'; }
+      if (cc && !d.showCondition && !plated) cc.innerHTML = '<span class="meta" title="The game does not use a condition for this item">' + (ed ? 'n/a' : '\u2013') + '</span>';
       if (qc && !d.showAmount) qc.innerHTML = ed ? '<span class="meta" title="The game does not use a quantity for this item">n/a</span>' : '';
       else if (qc && d.maxAmount) { var qi = qc.querySelector('input'); if (qi) { qi.max = d.maxAmount; if (+qi.value > d.maxAmount) qi.value = d.maxAmount; } }
     }
@@ -512,7 +515,7 @@
   }
   // positions and sizes are set from code (the page's CSP does not allow inline style attributes)
   async function layoutGrids() {
-    var grids = Array.prototype.slice.call(document.querySelectorAll('#view .cgrid'));
+    var grids = Array.prototype.slice.call(document.querySelectorAll('#view .cgrid:not(.eqgrid)'));
     if (!grids.length) return;
     var haveDefs = false; if (gameDir && !IC.fail) { try { await iconPack(); haveDefs = true; } catch (e) {} }
     for (var g of grids) {
@@ -803,12 +806,13 @@
       var e = { file: tr.dataset.file, sid: tr.dataset.sid, name: tr.dataset.name, weapon: true, attOut: [], attIn: [] }, ch = w.querySelector('[data-w="wch"]');
       w.querySelectorAll('select[data-w="wopt"]').forEach(function (sel) { if (sel.value !== sel.dataset.init) { if (sel.dataset.init) e.attOut.push(sel.dataset.init); if (sel.value) e.attIn.push(sel.value); } });
       if (ch && (ch.checked ? '1' : '0') !== tr.dataset.chi) e.chamber = ch.checked;
+      if (tr.dataset.rig === '1' && (e.attOut.length || e.attIn.length)) { var nowPlated = Array.prototype.some.call(w.querySelectorAll('select[data-w="wopt"]'), function (x) { return !!x.value; }); e.cond = nowPlated ? 100 : 0; }
       if (e.attOut.length || e.attIn.length || e.chamber !== undefined) out.push(e);
     });
     return out;
   }
   function weaponLine(e) {
-    return e.name + ': ' + [].concat(e.attOut.map(function (p) { return 'remove ' + Tres.itemName(p); }), e.attIn.map(function (p) { return 'add ' + Tres.itemName(p); }), e.chamber === undefined ? [] : ['chamber ' + (e.chamber ? 'on' : 'off')]).join(', ');
+    return e.name + ': ' + [].concat(e.attOut.map(function (p) { return 'remove ' + Tres.itemName(p); }), e.attIn.map(function (p) { return 'add ' + Tres.itemName(p); }), e.chamber === undefined ? [] : ['chamber ' + (e.chamber ? 'on' : 'off')], e.cond === undefined ? [] : ['plate condition ' + e.cond + '%']).join(', ');
   }
   var numLike = function (raw, v) { return /\./.test(String(raw)) ? Number(v).toFixed(1) : String(v); };
   // builds the new file texts in memory and checks them; nothing is written yet
@@ -842,6 +846,7 @@
           if (nestedIds().indexOf(id) === -1) t.appendRef(b, 'nested', 'ExtResource("' + id + '")');
         });
         if (e.chamber !== undefined) t.set(b, 'chamber', e.chamber ? 'true' : 'false');
+        if (e.cond !== undefined) t.set(b, 'condition', numLike(t.get(b, 'condition'), e.cond));
         edited++;
       });
       byFile[f].filter(function (e) { return e.add; }).forEach(function (e) {
@@ -1257,7 +1262,7 @@
   document.addEventListener('change', function (ev) {
     var cw = ev.target.dataset && ev.target.dataset.w;
     if (cw === 'q') { qUpdate(ev.target.closest('.snap')); return; }
-    if (cw === 'wopt') { wbSync(ev.target.closest('tr.wrow'), false); return; }
+    if (cw === 'wopt') { var ww = ev.target.closest('tr.wrow'); wbSync(ww, false); var wr = ww.previousElementSibling; if (wr && wr.dataset.rig === '1') { var wcc = wr.querySelector('.cc'), wp = Array.prototype.some.call(ww.querySelectorAll('select[data-w="wopt"]'), function (x) { return !!x.value; }); if (wcc && !wcc.querySelector('input')) wcc.innerHTML = wp ? '<span class="meta">100% on saving</span>' : '<span class="meta">n/a</span>'; else if (wcc) { var ci = wcc.querySelector('input'); if (ci) { var wasP = wr.dataset.plated === '1'; if (wp && !wasP) ci.value = 100; if (!wp) ci.value = 0; } } } return; }
     var eb0 = ev.target.closest('.eqbar');
     if (eb0) { if (ev.target.classList.contains('eqslot')) fillEqItems(eb0); else if (ev.target.classList.contains('eqitem')) fillEqAtt(eb0, false); return; }
     if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }

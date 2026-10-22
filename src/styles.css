@@ -97,3 +97,9 @@ tr.flash td{background:#2a3a2f}
 .eqx{position:absolute;left:2px;top:2px;z-index:3;padding:0 5px;font-size:13px;line-height:16px;background:#0e1415}
 .eqbar{margin-top:8px}.eqbar select{max-width:100%}
 .eqatt{display:flex;flex-wrap:wrap;gap:6px 12px;flex-basis:100%;margin-top:2px}.eqf{display:flex;gap:6px;align-items:center;color:var(--mut);font-size:12.5px}.eqf select{max-width:220px}
+/* two columns: the table scrolls inside its own column, the visual stays in view */
+.cbody{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:start}
+.ctab{min-width:0;overflow-x:auto}
+.cgwrap{position:sticky;top:8px;align-self:start}
+.eqbar{max-width:336px}.eqbar select{min-width:0;max-width:100%}
+@media (max-width:1150px){.cbody{grid-template-columns:minmax(0,1fr)}.cgwrap{position:static}}

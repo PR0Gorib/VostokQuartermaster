@@ -115,3 +115,4 @@ tr.flash td{background:#2a3a2f}
 .wslot select{position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer;max-width:none}
 .wp-top{left:calc(50% - 56px);top:0}.wp-bottom{left:calc(50% - 56px);bottom:0}.wp-right{right:0;top:calc(50% - 38px)}.wp-left{left:0;top:calc(50% - 38px)}
 .wp-tl{left:4%;top:0}.wp-tr{right:4%;top:0}.wp-bl{left:4%;bottom:0}.wp-br{right:4%;bottom:0}
+pre.diag{white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px;margin:10px 0 0;font-size:12px;max-height:260px;overflow:auto}

@@ -234,7 +234,7 @@
     })();
     return IC.busy;
   }
-  function niceErr(e) { var m = String(e && e.message || e); if (/cannot find the path|os error 3|No such file/i.test(m)) return 'the game folder was not found at this location, so choose it again'; if (/os error 5|access is denied|permission denied/i.test(m)) return 'Windows denied access (a file may be Read-only or in use by another program): ' + m; return /forbidden path|not allowed on the scope/i.test(m) ? 'the app no longer has permission to read the game folder (it is not remembered between launches), so choose the folder again' : m; }
+  function niceErr(e) { var m = String(e && e.message || e); var fp = /forbidden path:\s*(.+?),\s*maybe it is not allowed/i.exec(m); if (fp && !(gameDir && fp[1].toLowerCase().indexOf(gameDir.toLowerCase()) === 0)) { var perm = (/for `([^`]+)`/.exec(m) || [])[1]; return 'Quartermaster is not allowed to use "' + fp[1] + '"' + (perm ? ' (' + perm + ')' : '') + '. Choose the folder again in Settings; if that does not help, use Settings > Troubleshooting.'; } if (/cannot find the path|os error 3|No such file/i.test(m)) return 'the game folder was not found at this location, so choose it again'; if (/os error 5|access is denied|permission denied/i.test(m)) return 'Windows denied access (a file may be Read-only or in use by another program): ' + m; return /forbidden path|not allowed on the scope/i.test(m) ? 'the app no longer has permission to read the game folder (it is not remembered between launches), so choose the folder again' : m; }
   function iconReset() { try { if (IC.close) IC.close(); } catch (e) {} IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null }; }
   function toUrl(tex) { var c = document.createElement('canvas'); c.width = tex.width; c.height = tex.height; c.getContext('2d').putImageData(new ImageData(tex.rgba, tex.width, tex.height), 0, 0); return c.toDataURL('image/png'); }
   async function fillIcons() {
@@ -494,6 +494,26 @@
     return 0;
   }
   async function leaveOk() { return !WARN || !pendingChanges() || !!(await ask('Unsaved changes', 'You have changes on this page that are not in an edited copy yet. If you leave now they are lost.', { ok: 'Leave anyway' })); }
+  function diagHtml() {
+    return '<div class="set"><h4>Troubleshooting</h4><p class="nb">If Quartermaster reports a "forbidden path" or permission error, run this test and send the result when asking for help.</p><div class="ab-line"><button data-act="diag">Test folder access</button><button data-act="diagcopy">Copy result</button><button data-act="resetscope" class="dng">Reset folder permissions</button></div><pre class="diag" id="diagout" hidden></pre></div>';
+  }
+  // tries what a backup needs (read the save folder, write into the backups folder, copy a file) and reports the exact error of each step
+  async function runDiag() {
+    var out = [], add = function (x) { out.push(x); };
+    var test = async function (label, fn) { try { var r = await fn(); add('OK    ' + label + (r ? ' ' + r : '')); } catch (e) { add('FAIL  ' + label + ': ' + String(e && e.message || e)); } };
+    add('Vostok Quartermaster' + (APP_VER ? ' v' + APP_VER : '')); add('Save folder:    ' + saveDir); add('Backups folder: ' + bakDir); add('Game folder:    ' + (gameDir || '(not set)'));
+    try { add('App data:       ' + await T.path.appDataDir()); } catch (e) { add('App data:       ' + e); }
+    add('');
+    await test('read the save folder', async function () { var l = await fs.readDir(saveDir); return '(' + l.length + ' entries)'; });
+    await test('create the backups folder', async function () { await fs.mkdir(bakDir, { recursive: true }); });
+    await test('write and delete a file in the backups folder', async function () { var f = j(bakDir, 'diagnostic.tmp'); await fs.writeTextFile(f, 'test'); await fs.remove(f); });
+    await test('copy a save file into the backups folder', async function () {
+      var fl = (await fs.readDir(saveDir)).filter(function (x) { return !x.isDirectory; })[0]; if (!fl) return '(the save folder has no file to copy)';
+      var d = j(bakDir, 'diagnostic-copy.tmp'); await fs.copyFile(j(saveDir, fl.name), d); await fs.remove(d);
+    });
+    if (gameDir) await test('read the game folder', async function () { var l = await fs.readDir(gameDir); return '(' + l.length + ' entries)'; });
+    return out.join('\n');
+  }
   function magSettingHtml() {
     return '<div class="set"><h4>Weapon editor</h4><label class="ab-check"><input type="checkbox" id="xmags"' + (XMAGS ? ' checked' : '') + '> Also offer magazines of other weapons that use the same ammo</label><p class="mt nb">The base game only lets a weapon take the magazines it lists. Turn this on only if you use a magazine cross-compatibility mod.</p></div>';
   }
@@ -1128,7 +1148,7 @@
       '<div class="set"><h4>Game folder</h4><p>' + esc(gameDir || 'Not set') + (GD_AUTO ? ' (found automatically)' : '') + '</p><button data-act="pickgame">Choose&hellip;</button><p class="mt">Used for item icons and to check which mods are installed (the <b>mods</b> folder inside it). Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
-      modSizeHtml() + magSettingHtml() + warnSettingHtml() +
+      modSizeHtml() + magSettingHtml() + warnSettingHtml() + diagHtml() +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
       '<div class="set about"><h4>About</h4>' +
@@ -1283,6 +1303,14 @@
         await iconPack();
         var wh = await wbHtml(wtr); if (!wh) { toast('Could not read this item from the game files'); return; }
         wtr.insertAdjacentHTML('afterend', wh); wbSync(wtr.nextElementSibling, true); fillIcons(); return;
+      }
+      else if (act === 'diag') { var dpre = $('#diagout'); dpre.hidden = false; dpre.textContent = 'Testing...'; dpre.textContent = await runDiag(); return; }
+      else if (act === 'diagcopy') { var dtx = $('#diagout').textContent; if (!dtx || $('#diagout').hidden) { toast('Run the test first'); return; } try { await navigator.clipboard.writeText(dtx); toast('Copied'); } catch (e) { toast('Could not copy: select the text and copy it by hand'); } return; }
+      else if (act === 'resetscope') {
+        if (!(await ask('Reset folder permissions?', 'This forgets the folders Quartermaster was given access to by choosing them. It does not touch your saves or snapshots. After restarting the app you may have to choose the game folder again.', { ok: 'Reset' }))) return;
+        var sf = j(await T.path.appDataDir(), '.persisted-scope');
+        try { await fs.remove(sf); } catch (e) { if (!(await fs.exists(sf))) { toast('There was nothing to reset'); return; } throw e; }
+        await ask('Restart needed', 'Close Quartermaster and open it again to finish the reset.', { ok: 'OK' }); return;
       }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);

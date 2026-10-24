@@ -207,7 +207,7 @@
   /* ---------- item icons (read from the installed game on demand; nothing is copied or stored) ---------- */
   var STEAM_DEFAULT = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok', GD_AUTO = false, gameDir = '', IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null };
   // one folder for everything: the mods folder is the "mods" folder inside the game folder
-  var APP_VER = '1.0.0';
+  var APP_VER = '1.2.0';   // fallback only; the real version is read from the app at startup (keep it equal to package.json)
   function setGame(dir) { gameDir = dir || ''; modsDir = gameDir ? j(gameDir, 'mods') : ''; }
   function pckReader(file, size) {
     var fh = null, q = Promise.resolve();
@@ -310,7 +310,7 @@
     ['Head', 0, 6, 1, 1], ['Torso', 1, 6, 1, 1], ['Legs', 2, 6, 1, 1], ['Belt', 3, 6, 1, 1], ['Feet', 4, 6, 1, 1], ['Hands', 5, 6, 1, 1],
     ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
   function eqBarHtml() {
-    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
+    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><span class="tag man" title="New and still being tested. Keep your original snapshot and test the edited copy.">Experimental</span> <select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
       '<select class="eqitem" disabled><option value="">Choose a slot first</option></select><button data-act="eq-add">Equip</button><div class="eqatt" hidden></div><span class="meta amsg"></span></div>';
   }
   // base-game items allowed in each equipment slot, from the item definitions (built once)
@@ -835,7 +835,7 @@
         }).join('') + '</select></div>';
     }).join('');
     if (!boxes && !isW) return '<tr class="wrow"><td colspan="5"><div class="meta">Nothing to choose for ' + esc(Tres.itemName(tr.dataset.path)) + ' in the game data.</div></td></tr>';
-    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="meta">' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
+    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="meta"><span class="tag man" title="New and still being tested. Keep your original snapshot and test the edited copy.">Experimental</span> ' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
       '<div class="wbuild"><div class="wcenter"><img data-ic="' + esc(tr.dataset.path) + '" alt="" hidden><span class="wcn">' + esc(Tres.itemName(tr.dataset.path)) + '</span></div>' + boxes + '</div>' +
       (isW ? '<div class="fgrid"><label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label></div>' : '') +
       '<div class="meta">Click a box to choose a part. ' + (isW ? 'Rounds loaded: use the Qty box in the item row (it follows the magazine size). ' : '') + 'Choices are what the game lists as compatible' + (isW && XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></td></tr>';
@@ -882,6 +882,7 @@
     for (var f of Object.keys(byFile)) {
       var t = Tres.parse(await fs.readTextFile(j(src, f))), gone = {}, ls = null, addedHere = false;
       ls = t.loadSteps();
+      var usedBefore = {}; t.ext().forEach(function (b) { if (b.attrs.type === 'Resource' && t.usesOf(b.attrs.id) > 0) usedBefore[b.attrs.id] = true; });
       byFile[f].filter(function (e) { return !e.remove && !e.add && !e.weapon; }).forEach(function (e) {
         var b = t.subById(e.sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
         if (e.cond !== undefined) t.set(b, 'condition', numLike(t.get(b, 'condition'), e.cond));
@@ -918,6 +919,7 @@
         else t.appendRef(cb, key, 'SubResource("' + nid + '")');
         added++; addedHere = true;
       });
+      t.ext().slice().forEach(function (b) { if (usedBefore[b.attrs.id] && t.usesOf(b.attrs.id) === 0) t.dropExtIfUnused(b.attrs.id); });   // items nothing refers to any more
       t.setLoadSteps(ls);
       if (addedHere) { var ord = t.checkOrder(); if (ord.length) throw new Error(f + ': ' + ord[0]); }
       var bad = t.validate(); if (bad.length) throw new Error(f + ': ' + bad[0]);
@@ -1307,10 +1309,10 @@
       else if (act === 'diag') { var dpre = $('#diagout'); dpre.hidden = false; dpre.textContent = 'Testing...'; dpre.textContent = await runDiag(); return; }
       else if (act === 'diagcopy') { var dtx = $('#diagout').textContent; if (!dtx || $('#diagout').hidden) { toast('Run the test first'); return; } try { await navigator.clipboard.writeText(dtx); toast('Copied'); } catch (e) { toast('Could not copy: select the text and copy it by hand'); } return; }
       else if (act === 'resetscope') {
-        if (!(await ask('Reset folder permissions?', 'This forgets the folders Quartermaster was given access to by choosing them. It does not touch your saves or snapshots. After restarting the app you may have to choose the game folder again.', { ok: 'Reset' }))) return;
-        var sf = j(await T.path.appDataDir(), '.persisted-scope');
-        try { await fs.remove(sf); } catch (e) { if (!(await fs.exists(sf))) { toast('There was nothing to reset'); return; } throw e; }
-        await ask('Restart needed', 'Close Quartermaster and open it again to finish the reset.', { ok: 'OK' }); return;
+        var appd = await T.path.appDataDir(), sf = j(appd, '.persisted-scope');
+        if (!(await ask('Reset folder permissions', 'To reset the folders Quartermaster was given access to:\n\n1. Close Quartermaster.\n2. Delete the file ".persisted-scope" in the folder that opens now.\n3. Start Quartermaster again.\n\nYour saves and snapshots are not touched. You may have to choose the game folder again.\n\n(Quartermaster cannot delete this file itself: it would be written back when the app closes.)', { ok: 'Show the folder' }))) return;
+        try { await T.opener.revealItemInDir(sf); } catch (e) { await T.opener.revealItemInDir(appd); }
+        return;
       }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);

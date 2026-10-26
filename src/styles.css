@@ -116,3 +116,6 @@ tr.flash td{background:#2a3a2f}
 .wp-top{left:calc(50% - 56px);top:0}.wp-bottom{left:calc(50% - 56px);bottom:0}.wp-right{right:0;top:calc(50% - 38px)}.wp-left{left:0;top:calc(50% - 38px)}
 .wp-tl{left:4%;top:0}.wp-tr{right:4%;top:0}.wp-bl{left:4%;bottom:0}.wp-br{right:4%;bottom:0}
 pre.diag{white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px;margin:10px 0 0;font-size:12px;max-height:260px;overflow:auto}
+#pbar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--rust);border-radius:6px;padding:8px 12px;z-index:50;box-shadow:0 4px 16px #0008}
+#pbar[hidden]{display:none}#pcount{color:#f0a78f;font-weight:600}
+section.pg[hidden]{display:none}

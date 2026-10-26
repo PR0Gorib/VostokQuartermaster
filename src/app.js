@@ -186,7 +186,7 @@
     return { meta: meta, done: done, left: left };
   }
   async function renderRepair() {
-    var v = $('#view'), head = '<h1>Repair</h1><p class="sub">Finds items from mods that are no longer installed and removes them into a cleaned copy. Your live save is never changed.</p>';
+    var v = pageEl('repair'), head = '<h1>Repair</h1><p class="sub">Finds items from mods that are no longer installed and removes them into a cleaned copy. Your live save is never changed.</p>';
     if (!modsDir) { v.innerHTML = head + '<div class="empty">Choose the <b>game folder</b> first (it contains the <b>mods</b> folder).<br><br><button data-act="pickgame" class="pri">Choose game folder</button></div>'; return; }
     var l = await list(), mods;
     if (RS.src !== 'live' && !l.some(function (m) { return m.id === RS.src; })) RS.src = 'live';
@@ -435,7 +435,7 @@
     }
   }
   async function renderInventory() {
-    var v = $('#view'), l = await list();
+    var v = pageEl('inventory'), l = await list();
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
@@ -450,7 +450,7 @@
         if (t.get(m, 'equipment') !== undefined) chars += charHtml(t, m, extMap(t));
       }
     } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#isrc').value = IS.src; return; }
-    v.innerHTML = head + iconHint() + (IS.edit ? '<datalist id="itemlist"></datalist>' : '') + (chars || '<div class="empty">No character file found in this save.</div>');
+    v.innerHTML = head + iconHint() + '' + (chars || '<div class="empty">No character file found in this save.</div>');
     $('#isrc').value = IS.src;
     fillIcons();
     applyDefs();
@@ -481,19 +481,54 @@
     if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 12 || +m[2] > 16) return null;
     MODSZ[path] = [+m[1], +m[2]]; saveModSizes(); return MODSZ[path];
   }
+  var invLine = function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.att && e.att.length ? ', with ' + e.att.map(function (a) { return Tres.itemName(a); }).join(', ') : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); };
+  // plans every page's pending changes on top of each other (so two pages can change the same file) and writes ONE edited copy
+  async function createBatch() {
+    var ie = collectInvEdits().concat(collectAdds(), collectWeaponEdits()), qe = collectQuestEdits(), ce = collectEdits();
+    var total = ie.length + qe.length + ce.length; if (!total) { toast('No changes to apply'); return; }
+    var src = srcDir(), texts = {}, parts = [], blocks = [];
+    var rd = async function (f) { return texts[f] !== undefined ? texts[f] : await fs.readTextFile(j(src, f)); };
+    if (ie.length) {
+      var plan = await planInv(src, ie, rd); Object.keys(plan.out).forEach(function (f) { texts[f] = plan.out[f]; });
+      if (ie.some(function (e) { return e.file === 'Character.tres'; })) parts.push('inventory');
+      if (ie.some(function (e) { return e.file !== 'Character.tres'; })) parts.push('shelter');
+      var lines = ie.slice(0, 14).map(invLine); if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
+      var sum = [plan.added ? plan.added + ' added' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed (including anything stored inside them)' : ''].filter(Boolean).join(', ');
+      var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\nAdding items is experimental. It has worked in testing, but keep your original snapshot and test the copy before relying on it.' : '');
+      blocks.push('Inventory and shelters\n' + lines.join('\n') + '\n' + sum + '.' + eqWarn);
+    }
+    if (ce.length) {
+      ce.forEach(function (e) { e.raw = rawOf(e); });
+      for (var f of ['Character', 'World']) {
+        var es = ce.filter(function (e) { return e.f === f; }); if (!es.length) continue;
+        var tc = Tres.parse(await rd(f + '.tres')), mc = tc.main(); es.forEach(function (e) { tc.set(mc, e.k, e.raw); }); texts[f + '.tres'] = tc.serialize();
+      }
+      parts.push('character'); blocks.push('Character and world\n' + ce.map(function (e) { return e.label + ': ' + e.from + ' \u2192 ' + e.to; }).join('\n'));
+    }
+    if (qe.length) {
+      var qp = await planTraders(src, qe, rd); Object.keys(qp.out).forEach(function (f) { texts[f] = qp.out[f]; });
+      parts.push('traders');
+      var ql = qe.slice(0, 14).map(function (e) { return TRADERS[e.k][0] + ' - ' + e.name + ': ' + QSTATE[e.from] + ' \u2192 ' + QSTATE[e.to]; }); if (qe.length > 14) ql.push('...and ' + (qe.length - 14) + ' more');
+      blocks.push('Traders\n' + ql.join('\n') + '\nMarking a task Completed does not hand over its reward.');
+    }
+    for (var fn of Object.keys(texts)) { var tt = Tres.parse(texts[fn]), pr = tt.validate().concat(tt.checkOrder()); if (pr.length) throw new Error('The edited ' + fn + ' failed its check: ' + pr[0]); }
+    if (!(await ask('Create edited copy?', blocks.join('\n\n'), { ok: 'Create' }))) return;
+    var tag = 'Edited ' + parts.join(' + ') + ': ' + total + ' change' + (total === 1 ? '' : 's');
+    var meta = await snapFrom(src, tag), data = j(j(bakDir, meta.id), 'data');
+    for (var wf of Object.keys(texts)) await fs.writeTextFile(j(data, wf), texts[wf]);
+    resetAllPages();
+    await ask('Edited copy created', 'Find it under Snapshots (tagged "' + tag + '") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
+  }
   function warnSettingHtml() {
     return '<div class="set"><h4>Unsaved changes</h4><label class="ab-check"><input type="checkbox" id="warnunsaved"' + (WARN ? ' checked' : '') + '> Warn me when I leave a page or close the app with changes that are not in an edited copy yet</label></div>';
   }
   // how many edits are waiting on the current page (anything that cannot be read counts as pending)
   function pendingChanges() {
-    try {
-      if ((page === 'inventory' && IS.edit) || (page === 'shelter' && SS.edit)) return collectInvEdits().length + collectAdds().length + collectWeaponEdits().length;
-      if (page === 'edit') return collectEdits().length;
-      if (page === 'traders' && TS.edit) return collectQuestEdits().length;
-    } catch (e) { return 1; }
-    return 0;
+    var n = 0;
+    [collectInvEdits, collectAdds, collectWeaponEdits, collectEdits, collectQuestEdits].forEach(function (fn) { try { n += fn().length; } catch (e) { n += 1; } });
+    return n;
   }
-  async function leaveOk() { return !WARN || !pendingChanges() || !!(await ask('Unsaved changes', 'You have changes on this page that are not in an edited copy yet. If you leave now they are lost.', { ok: 'Leave anyway' })); }
+  async function leaveOk() { return !WARN || !pendingChanges() || !!(await ask('Unsaved changes', 'You have changes that are not in an edited copy yet. If you continue they are lost.', { ok: 'Discard changes' })); }
   function diagHtml() {
     return '<div class="set"><h4>Troubleshooting</h4><p class="nb">If Quartermaster reports a "forbidden path" or permission error, run this test and send the result when asking for help.</p><div class="ab-line"><button data-act="diag">Test folder access</button><button data-act="diagcopy">Copy result</button><button data-act="resetscope" class="dng">Reset folder permissions</button></div><pre class="diag" id="diagout" hidden></pre></div>';
   }
@@ -619,7 +654,7 @@
       (cont.length ? cont.map(cdet).join('') : '<p class="meta">No containers here.</p>') + ldet;
   }
   async function renderShelter() {
-    var v = $('#view'), l = await list();
+    var v = pageEl('shelter'), l = await list();
     if (SS.src !== 'live' && !l.some(function (m) { return m.id === SS.src; })) SS.src = 'live';
     var dir = SS.src === 'live' ? saveDir : j(j(bakDir, SS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
@@ -635,7 +670,7 @@
       }
     } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#ssrc').value = SS.src; return; }
     shelters.sort(function (a, b) { return a.n.localeCompare(b.n); });
-    v.innerHTML = head + iconHint() + (SS.edit ? '<datalist id="itemlist"></datalist>' : '') + (shelters.map(function (s) { return s.h; }).join('') || '<div class="empty">No shelter files found in this save.</div>');
+    v.innerHTML = head + iconHint() + '' + (shelters.map(function (s) { return s.h; }).join('') || '<div class="empty">No shelter files found in this save.</div>');
     $('#ssrc').value = SS.src;
     fillIcons();
     applyDefs();
@@ -767,8 +802,8 @@
     if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
     placeRow(tb, '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-cat="' + esc(cat) + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
   }
-  function collectAdds() {
-    return Array.prototype.slice.call(document.querySelectorAll('#view tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', att: (d.att || '').split('|').filter(Boolean) }; });
+  function collectAdds(sc) {
+    return Array.prototype.slice.call(document.querySelectorAll((sc || '#view') + ' tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', att: (d.att || '').split('|').filter(Boolean) }; });
   }
   // a new SlotData entry, written in the game's own property order
   function addSlot(t, e, before) {
@@ -779,9 +814,9 @@
   }
 
   /* ---------- inventory editing (always written to a new snapshot) ---------- */
-  function collectInvEdits() {
+  function collectInvEdits(sc) {
     var out = [];
-    document.querySelectorAll('#view tr.er').forEach(function (tr) {
+    document.querySelectorAll((sc || '#view') + ' tr.er').forEach(function (tr) {
       var d = tr.dataset, c = tr.querySelector('[data-w="c"]'), a = tr.querySelector('[data-w="a"]'), r = tr.querySelector('[data-w="r"]');
       if (r && r.checked) { out.push({ file: d.file, rid: d.rid, sid: d.sid, name: d.name, remove: true, eq: !!d.eq }); return; }
       var e = { file: d.file, sid: d.sid, name: d.name };
@@ -858,9 +893,9 @@
       if (!initial) { if (!ms.value) qi.value = 0; else { var v = parseInt(qi.value, 10); if (isNaN(v) || v === 0 || (max && v > max)) qi.value = max || v || 0; } }
     } else if (+w.dataset.wmax) qi.max = w.dataset.wmax;
   }
-  function collectWeaponEdits() {
+  function collectWeaponEdits(sc) {
     var out = [];
-    document.querySelectorAll('#view tr.wrow').forEach(function (w) {
+    document.querySelectorAll((sc || '#view') + ' tr.wrow').forEach(function (w) {
       var tr = w.previousElementSibling; if (!tr || !tr.classList.contains('er')) return;
       var rm = tr.querySelector('[data-w="r"]'); if (rm && rm.checked) return;
       var e = { file: tr.dataset.file, sid: tr.dataset.sid, name: tr.dataset.name, weapon: true, attOut: [], attIn: [] }, ch = w.querySelector('[data-w="wch"]');
@@ -876,11 +911,11 @@
   }
   var numLike = function (raw, v) { return /\./.test(String(raw)) ? Number(v).toFixed(1) : String(v); };
   // builds the new file texts in memory and checks them; nothing is written yet
-  async function planInv(src, edits) {
+  async function planInv(src, edits, rd) {
     var byFile = {}, out = {}, removed = 0, edited = 0, added = 0;
     edits.forEach(function (e) { (byFile[e.file] = byFile[e.file] || []).push(e); });
     for (var f of Object.keys(byFile)) {
-      var t = Tres.parse(await fs.readTextFile(j(src, f))), gone = {}, ls = null, addedHere = false;
+      var t = Tres.parse(rd ? await rd(f) : await fs.readTextFile(j(src, f))), gone = {}, ls = null, addedHere = false;
       ls = t.loadSteps();
       var usedBefore = {}; t.ext().forEach(function (b) { if (b.attrs.type === 'Resource' && t.usesOf(b.attrs.id) > 0) usedBefore[b.attrs.id] = true; });
       byFile[f].filter(function (e) { return !e.remove && !e.add && !e.weapon; }).forEach(function (e) {
@@ -926,11 +961,6 @@
       out[f] = t.serialize();
     }
     return { out: out, removed: removed, edited: edited, added: added };
-  }
-  async function makeInvEdited(src, plan, n, what) {
-    var meta = await snapFrom(src, 'Edited ' + (what || 'inventory') + ': ' + n + ' change' + (n === 1 ? '' : 's')), data = j(j(bakDir, meta.id), 'data');
-    for (var f of Object.keys(plan.out)) await fs.writeTextFile(j(data, f), plan.out[f]);
-    return meta;
   }
 
   /* ---------- traders (read-only) ---------- */
@@ -981,10 +1011,10 @@
     return out;
   }
   // Applies the task changes to Traders.tres: completed = name in the trader's list, in progress = a TaskData note, not started = neither.
-  async function planTraders(src, edits) {
+  async function planTraders(src, edits, rd) {
     var f = j(src, 'Traders.tres');
     if (!(await fs.exists(f))) throw new Error('There is no Traders.tres in this save.');
-    var t = Tres.parse(await fs.readTextFile(f)), m = t.main(), ls = t.loadSteps(), STR = /"(?:[^"\\]|\\.)*"/g;
+    var t = Tres.parse(rd ? await rd('Traders.tres') : await fs.readTextFile(f)), m = t.main(), ls = t.loadSteps(), STR = /"(?:[^"\\]|\\.)*"/g;
     if (!m || t.get(m, 'taskNotes') === undefined) throw new Error('Traders.tres has an unexpected layout (no taskNotes).');
     edits.forEach(function (e) {
       var raw = t.get(m, e.k);
@@ -1020,7 +1050,7 @@
     }).join('');
   }
   async function renderTraders() {
-    var v = $('#view'), l = await list();
+    var v = pageEl('traders'), l = await list();
     if (TS.src !== 'live' && !l.some(function (m) { return m.id === TS.src; })) TS.src = 'live';
     var dir = TS.src === 'live' ? saveDir : j(j(bakDir, TS.src), 'data'), f = j(dir, 'Traders.tres');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
@@ -1069,7 +1099,7 @@
   }
   function collectEdits() {
     var out = [];
-    document.querySelectorAll('#view [data-k]').forEach(function (el) {
+    document.querySelectorAll('#pg-edit input[data-k], #pg-edit select[data-k]').forEach(function (el) {
       var chk = el.type === 'checkbox', v = chk ? String(el.checked) : el.value;
       if (v === el.dataset.init) return;
       var to = chk ? (el.checked ? 'on' : 'off') : el.tagName === 'SELECT' ? el.options[el.selectedIndex].text : v;
@@ -1078,18 +1108,8 @@
     });
     return out;
   }
-  async function makeEdited(src, edits) {
-    var meta = await snapFrom(src, 'Edited character: ' + edits.length + ' change' + (edits.length === 1 ? '' : 's')), data = j(j(bakDir, meta.id), 'data');
-    for (var f of ['Character', 'World']) {
-      var es = edits.filter(function (e) { return e.f === f; }); if (!es.length) continue;
-      var p = j(data, f + '.tres'), t = Tres.parse(await fs.readTextFile(p)), m = t.main();
-      es.forEach(function (e) { t.set(m, e.k, e.raw); });
-      await fs.writeTextFile(p, t.serialize());
-    }
-    return meta;
-  }
   async function renderEdit() {
-    var v = $('#view'), l = await list();
+    var v = pageEl('edit'), l = await list();
     if (ES.src !== 'live' && !l.some(function (m) { return m.id === ES.src; })) ES.src = 'live';
     var dir = ES.src === 'live' ? saveDir : j(j(bakDir, ES.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
@@ -1129,7 +1149,7 @@
 
   /* ---------- views ---------- */
   async function renderSnapshots() {
-    var ok = await fs.exists(saveDir), v = $('#view'), lw = ok ? await worldInfo(saveDir) : null;
+    var ok = await fs.exists(saveDir), v = pageEl('snapshots'), lw = ok ? await worldInfo(saveDir) : null;
     var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) + (lw.difficulty === '3' ? ' <span class="tag iron">Ironman</span>' : '') : '') + '</p>';
     if (!ok) { v.innerHTML = head + '<div class="empty">Save folder not found.<br><br><button data-act="pick" class="pri">Choose folder</button></div>'; return; }
     var l = await list();
@@ -1145,7 +1165,7 @@
   }
   async function renderSettings() {
     var auto = localStorage.getItem('auto') === '1';
-    $('#view').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
+    pageEl('settings').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
       '<div class="set"><h4>Save folder</h4><p>' + esc(saveDir) + '</p><button data-act="pick">Change&hellip;</button> <button data-act="open-save">Show in Explorer</button></div>' +
       '<div class="set"><h4>Game folder</h4><p>' + esc(gameDir || 'Not set') + (GD_AUTO ? ' (found automatically)' : '') + '</p><button data-act="pickgame">Choose&hellip;</button><p class="mt">Used for item icons and to check which mods are installed (the <b>mods</b> folder inside it). Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
@@ -1160,7 +1180,25 @@
       '<div class="ab-row"><div class="ab-label">Links</div><div class="ab-body"><div class="ab-line"><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster">GitHub</button><button data-act="open-url" data-url="https://github.com/PR0Gorib/VostokQuartermaster/issues">Report a problem</button></div></div></div>' +
       '<div class="ab-foot"><div>Made with \u2764\ufe0f by PR0Gorib</div><div class="meta">Unofficial tool. Not affiliated with the Road to Vostok Ltd.<br>Item icons and trader portraits are read from your own game files when needed and are never stored.</div></div></div>';
   }
-  function render() { return (page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'shelter' ? renderShelter() : page === 'traders' ? renderTraders() : page === 'edit' ? renderEdit() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }); }
+  // each page lives in its own section of #view; pages being edited stay alive while you look at other tabs
+  function pageEl(name) {
+    var v = $('#view'), el = document.getElementById('pg-' + name);
+    if (!el) { el = document.createElement('section'); el.id = 'pg-' + name; el.className = 'pg'; v.appendChild(el); }
+    return el;
+  }
+  function showPage(name) { pageEl(name); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.hidden = e.id !== 'pg-' + name; }); }
+  function dropPages() { document.querySelectorAll('#view > section.pg').forEach(function (e) { e.remove(); }); }
+  function resetAllPages() { IS.edit = false; SS.edit = false; TS.edit = false; dropPages(); }
+  // one working source (the live save or a snapshot) for all editors, so their changes can go into one edited copy
+  function setSource(v) { IS.src = SS.src = TS.src = ES.src = v; resetAllPages(); return render(); }
+  function srcDir() { return IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data'); }
+  function updPending() {
+    var bar = $('#pbar'); if (!bar) return;
+    var n = pendingChanges(); bar.hidden = n === 0; $('#pcount').textContent = n + ' pending change' + (n === 1 ? '' : 's');
+  }
+  var pTimer = 0;
+  function schedPending() { clearTimeout(pTimer); pTimer = setTimeout(updPending, 60); }
+  function render() { showPage(page); return Promise.resolve(page === 'settings' ? renderSettings() : page === 'repair' ? renderRepair() : page === 'inventory' ? renderInventory() : page === 'shelter' ? renderShelter() : page === 'traders' ? renderTraders() : page === 'edit' ? renderEdit() : renderSnapshots()).catch(function (e) { $('#view').innerHTML = '<div class="empty bad">' + esc(e) + '</div>'; }).then(schedPending); }
 
   /* ---------- update check (GitHub releases; only a link is shown, nothing is downloaded or installed) ---------- */
   var REPO_URL = 'https://github.com/PR0Gorib/VostokQuartermaster', UP = { tag: '', url: '' };
@@ -1199,7 +1237,13 @@
   /* ---------- events ---------- */
   document.addEventListener('click', async function (ev) {
     var nb = ev.target.closest('#nav button[data-page]');
-    if (nb) { if (nb.dataset.page !== page && !(await leaveOk())) return; page = nb.dataset.page; if (page !== 'settings') IC.fail = ''; IS.edit = false; SS.edit = false; TS.edit = false; document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); }); return render(); }
+    if (nb) {
+      var np = nb.dataset.page; if (np !== 'settings') IC.fail = ''; page = np;
+      document.querySelectorAll('#nav button').forEach(function (b) { b.classList.toggle('on', b === nb); });
+      var keep = document.getElementById('pg-' + np) && ((np === 'inventory' && IS.edit) || (np === 'shelter' && SS.edit) || (np === 'traders' && TS.edit) || (np === 'edit' && collectEdits().length));
+      if (keep) { showPage(np); schedPending(); return; }
+      return render();
+    }
     var flashRow = function (tr) { tr.scrollIntoView({ block: 'center', behavior: 'smooth' }); tr.classList.add('flash'); setTimeout(function () { tr.classList.remove('flash'); }, 1400); };
     var es = ev.target.closest('.eqs.has');
     if (es && !ev.target.closest('[data-act]')) { var er = document.querySelector('#view tr[data-slot="' + es.dataset.slot + '"]'); if (er) flashRow(er); return; }
@@ -1231,7 +1275,7 @@
         }
         m.tag = t; m.id = nid; await fs.writeTextFile(j(j(bakDir, nid), 'snapshot.json'), JSON.stringify(m));
         if (nid !== id) { [RS, IS, TS, ES].forEach(function (s) { if (s.src === id) s.src = nid; }); } }
-      else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; }
+      else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; if (IS.src === id) { IS.src = SS.src = TS.src = ES.src = 'live'; resetAllPages(); } }
       else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
       else if (act === 'heal') {
@@ -1239,13 +1283,7 @@
         HEAL_C.forEach(function (k) { var el = document.querySelector('[data-f="Character"][data-k="' + k + '"]'); if (el) el.checked = false; });
         toast('Meters set to 100 and conditions cleared. Review, then create the copy.'); return;
       }
-      else if (act === 'mkedit') {
-        var edits = collectEdits(); if (!edits.length) { toast('No changes to apply'); return; }
-        edits.forEach(function (e) { e.raw = rawOf(e); });
-        if (!(await ask('Create edited copy?', edits.map(function (e) { return e.label + ': ' + e.from + ' \u2192 ' + e.to; }).join('\n'), { ok: 'Create' }))) return;
-        await makeEdited(ES.src === 'live' ? saveDir : j(j(bakDir, ES.src), 'data'), edits);
-        await ask('Edited copy created', 'Find it under Snapshots (tagged "Edited character") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
-      }
+      else if (act === 'batch-create' || act === 'mkedit' || act === 'inv-apply' || act === 'sh-apply' || act === 'tr-apply') { await createBatch(); }
       else if (act === 'delauto') {
         var del = (await list()).filter(function (m) { return m.auto && m.tag !== 'Before restore'; }); if (!del.length) return;
         if (!(await ask('Delete automatic snapshots?', del.length + ' automatic snapshot' + (del.length === 1 ? '' : 's') + ' will be deleted. Manual snapshots and "Before restore" safety copies are kept. This cannot be undone.', { ok: 'Delete' }))) return;
@@ -1261,7 +1299,7 @@
       }
       else if (act === 'inv-edit' || act === 'sh-edit') {
         var S1 = act === 'sh-edit' ? SS : IS;
-        if (S1.edit) { var pend; try { pend = collectInvEdits().length + collectAdds().length + collectWeaponEdits().length; } catch (e) { pend = 1; } if (pend && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return; }
+        if (S1.edit) { var pend, scp = act === 'sh-edit' ? '#pg-shelter' : '#pg-inventory'; try { pend = collectInvEdits(scp).length + collectAdds(scp).length + collectWeaponEdits(scp).length; } catch (e) { pend = 1; } if (pend && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return; }
         S1.edit = !S1.edit;
       }
       else if (act === 'sh-add') { await addToContainer(b.closest('.addbar')); return; }
@@ -1269,34 +1307,11 @@
       else if (act === 'sh-cancel') { var cr = b.closest('tr'); if (cr) { var ge = document.querySelector('.gi[data-aid="' + cr.dataset.aid + '"]'); if (ge) ge.remove(); var eb = document.querySelector('.eqs[data-aid="' + cr.dataset.aid + '"]'); if (eb) { eb.innerHTML = eb.dataset.old || ''; eb.className = eb.dataset.oldc || 'eqs eqe'; delete eb.dataset.aid; delete eb.dataset.old; delete eb.dataset.oldc; } cr.remove(); } return; }
       else if (act === 'eq-rm') { var xb = b.closest('.eqs'), xt = document.querySelector('#view tr.er[data-slot="' + xb.dataset.slot + '"]'), xc = xt && xt.querySelector('[data-w="r"]'); if (xc) { xc.checked = !xc.checked; xb.classList.toggle('rm', xc.checked); } return; }
       else if (act === 'eq-add') { await eqAdd(b.closest('.eqbar')); return; }
-      else if (act === 'inv-apply' || act === 'sh-apply') {
-        var shl = act === 'sh-apply', S2 = shl ? SS : IS;
-        var ie = collectInvEdits().concat(collectAdds(), collectWeaponEdits()); if (!ie.length) { toast('No changes to apply'); return; }
-        var isrc = S2.src === 'live' ? saveDir : j(j(bakDir, S2.src), 'data'), plan = await planInv(isrc, ie);
-        var lines = ie.slice(0, 14).map(function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.att && e.att.length ? ', with ' + e.att.map(function (a) { return Tres.itemName(a); }).join(', ') : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); });
-        if (ie.length > 14) lines.push('...and ' + (ie.length - 14) + ' more');
-        var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\n\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\n\nAdding items is experimental. It has worked in testing, but keep your original snapshot and test the copy before relying on it.' : '');
-        var sum = [plan.added ? plan.added + ' added' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed' + ' (including anything stored inside them)' : ''].filter(Boolean).join(', ');
-        if (!(await ask('Create edited copy?', lines.join('\n') + '\n\n' + sum + '.' + eqWarn, { ok: 'Create' }))) return;
-        await makeInvEdited(isrc, plan, ie.length, shl ? 'shelter' : 'inventory');
-        S2.edit = false;
-        await ask('Edited copy created', 'Find it under Snapshots (tagged \"Edited ' + (shl ? 'shelter' : 'inventory') + '\") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
-      }
       else if (act === 'tr-edit') {
         if (TS.edit && collectQuestEdits().length && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return;
         TS.edit = !TS.edit;
       }
       else if (act === 'tr-all') { var qc = b.closest('.snap'); qc.querySelectorAll('select[data-w="q"]').forEach(function (s) { s.value = b.dataset.to; }); qUpdate(qc); return; }
-      else if (act === 'tr-apply') {
-        var qe = collectQuestEdits(); if (!qe.length) { toast('No changes to apply'); return; }
-        var qsrc = TS.src === 'live' ? saveDir : j(j(bakDir, TS.src), 'data'), qp = await planTraders(qsrc, qe);
-        var ql = qe.slice(0, 14).map(function (e) { return TRADERS[e.k][0] + ' - ' + e.name + ': ' + QSTATE[e.from] + ' \u2192 ' + QSTATE[e.to]; });
-        if (qe.length > 14) ql.push('...and ' + (qe.length - 14) + ' more');
-        if (!(await ask('Create edited copy?', ql.join('\n') + '\n\nMarking a task Completed here does not hand over its reward (keys, items). If a shelter unlock depends on that reward, it may not trigger. Test the copy before relying on it.', { ok: 'Create' }))) return;
-        await makeInvEdited(qsrc, qp, qe.length, 'tasks');
-        TS.edit = false;
-        await ask('Edited copy created', 'Find it under Snapshots (tagged "Edited tasks") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
-      }
       else if (act === 'forgetsize') { delete MODSZ[b.dataset.p]; saveModSizes(); }
       else if (act === 'wp-open') {
         var wtr = b.closest('tr'), wn = wtr.nextElementSibling;
@@ -1314,12 +1329,13 @@
         try { await T.opener.revealItemInDir(sf); } catch (e) { await T.opener.revealItemInDir(appd); }
         return;
       }
+      else if (act === 'batch-discard') { if (!(await ask('Discard all changes?', 'Everything you changed on every page, that is not in an edited copy yet, is lost.', { ok: 'Discard all' }))) return; resetAllPages(); }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
       else if (act === 'open-save') return T.opener.revealItemInDir(saveDir);
       else if (act === 'open-bak') { await fs.mkdir(bakDir, { recursive: true }); return T.opener.revealItemInDir(bakDir); }
     } catch (e) {
-      if (act === 'inv-apply' || act === 'sh-apply' || act === 'tr-apply') { await ask('Could not create the copy', String(e && e.message || e) + '\n\nNothing was changed. Your edits on this page are still here.', { ok: 'OK' }); return; }
+      if (act === 'batch-create' || act === 'mkedit' || act === 'inv-apply' || act === 'sh-apply' || act === 'tr-apply') { await ask('Could not create the copy', String(e && e.message || e) + '\n\nNothing was changed. Your edits are still here.', { ok: 'OK' }); return; }
       if (act === 'restore') {
         var rl = e && e.ro ? e.ro.slice(0, 8).map(function (f) { return f.split(/[\\/]/).slice(-2).join('\\'); }).join('\n') + (e.ro.length > 8 ? '\n...and ' + (e.ro.length - 8) + ' more' : '') : '';
         await ask('Restore failed', e && e.ro ? 'Nothing was changed. Windows has these files marked Read-only, so they cannot be replaced:\n\n' + rl + '\n\nRight-click each file, choose Properties, untick Read-only, then restore again.' : (restoreStarted ? 'Restore stopped part-way, so your save may be partly restored.\n\n' : 'Nothing was changed.\n\n') + niceErr(e) + (restoreStarted ? '\n\nClose the game and any program using the save folder, then try again. A copy of your save from before the restore is under Snapshots (tagged "Before restore").' : ''), { ok: 'OK' });
@@ -1341,7 +1357,7 @@
     if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }
     if (cw === 'r') { var rtr = ev.target.closest('tr'), rbx = rtr && rtr.dataset.slot ? document.querySelector('.eqs[data-slot="' + rtr.dataset.slot + '"]') : null; if (rbx) rbx.classList.toggle('rm', ev.target.checked); }
     if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC || row.dataset.wp ? 0 : 1, nn)); }
-    if (ev.target.id === 'esrc') { ES.src = ev.target.value; render(); } if (ev.target.id === 'tsrc') { TS.src = ev.target.value; TS.edit = false; render(); } if (ev.target.id === 'isrc') { IS.src = ev.target.value; IS.edit = false; render(); } if (ev.target.id === 'ssrc') { SS.src = ev.target.value; SS.edit = false; render(); } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
+    if (/^(esrc|tsrc|isrc|ssrc)$/.test(ev.target.id)) { setSource(ev.target.value); return; } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 
   document.addEventListener('input', function (ev) {
     var tw = ev.target.dataset && ev.target.dataset.w;
@@ -1367,6 +1383,8 @@
       await fs.mkdir(bakDir, { recursive: true });
       await startWatch();
     } catch (e) { toast('Startup error: ' + e); }
+    document.body.insertAdjacentHTML('beforeend', '<div id="pbar" hidden><span id="pcount"></span><button data-act="batch-create" class="pri">Create edited copy</button><button data-act="batch-discard">Discard all</button></div><datalist id="itemlist"></datalist>');
+    ['input', 'change', 'click'].forEach(function (evn) { document.addEventListener(evn, schedPending); });
     try {
       var cw0 = window.__TAURI__.window.getCurrentWindow();
       cw0.onCloseRequested(async function (ev) {

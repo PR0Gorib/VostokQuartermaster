@@ -410,13 +410,14 @@
     }
     tb.insertBefore(nr, ref);
   }   // the carried inventory: 8 columns x 13 rows, stored in the character's own inventory list
-  var INSP_PH = '<div class="meta">Click an item on a grid or slot to see and edit it here.</div>';
+  var INSP_VIEW = '<div class="meta">Click an item on a grid or slot to see its details. Turn on Edit mode to change it.</div>', INSP_EDIT = '<div class="meta">Click an item on a grid or slot to edit it here.</div>';
+  var inspPh = function (pg) { return ((pg && pg.id === 'pg-shelter') ? SS.edit : IS.edit) ? INSP_EDIT : INSP_VIEW; };
   function charHtml(t, m, ext) {
     var map = function (k) { return ids(t.get(m, k), 'SubResource').map(function (i) { return slotInfo(t, ext, i); }); }, eq = map('equipment').filter(Boolean).sort(function (a, b) { return eqIdx(a.slot) - eqIdx(b.slot); });
     CUR_CID = INV_CID; var inv = map('inventory'); CUR_CID = '';
     return '<h2>Character</h2><div class="invlayout"><div class="ilcol"><h3>Equipment</h3><div class="cbody"><div class="ctab"><h3>Equipped</h3>' + itemTable(rowsHtml(eq, false)) + '</div><div class="cgwrap">' + eqPanelHtml(eq) + (EDIT_ON ? eqBarHtml() : '') + '</div></div></div>' +
       '<div class="ilcol carried"><h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' + (EDIT_ON ? addBarHtml(CUR_FILE, INV_CID, INV_W, INV_H, 'Carried items') : '') + '<div class="cbody"><div class="ctab"><h3>Carried</h3>' + itemTable(rowsHtml(inv, true), EDIT_ON) + '</div><div class="cgwrap">' + gridHtml({ dims: [INV_W, INV_H], items: inv }) + '</div></div></div>' +
-      '<aside class="insp">' + INSP_PH + '</aside></div>';
+      '<aside class="insp">' + (EDIT_ON ? INSP_EDIT : INSP_VIEW) + '</aside></div>';
   }
   // Uses the item definitions in the game files: hides condition/quantity where the game has none, caps the quantity at the stack limit.
   async function applyDefs() {
@@ -437,11 +438,11 @@
     }
   }
   async function renderInventory() {
-    var v = pageEl('inventory'), l = await list();
+    var v = pageEl('inventory'), l = await list(); fitCells('inventory');
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to your carried grid, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to your carried grid, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.inventory ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#isrc').value = IS.src; return; }
     var chars = '';
     try {
@@ -452,7 +453,7 @@
         if (t.get(m, 'equipment') !== undefined) chars += charHtml(t, m, extMap(t));
       }
     } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#isrc').value = IS.src; return; }
-    v.innerHTML = head + iconHint() + '' + (chars || '<div class="empty">No character file found in this save.</div>'); v.classList.toggle('lv', LV);
+    v.innerHTML = head + iconHint() + '' + (chars || '<div class="empty">No character file found in this save.</div>'); v.classList.toggle('lv', LV.inventory);
     $('#isrc').value = IS.src;
     fillIcons();
     applyDefs();
@@ -469,7 +470,7 @@
   var CELL = 64;  // grid positions in the save are cell index x 64
   // Items from mods are not in the game files, so their grid size is unknown. The user tells us once; it is remembered.
   var MODSZ = (function () { try { return JSON.parse(localStorage.getItem('modsizes') || '{}') || {}; } catch (e) { return {}; } })();
-  var LV = localStorage.getItem('listview') === '1';   // show the item lists (with their edit fields) next to the grids
+  var LV = { inventory: localStorage.getItem('lv_inventory') === '1', shelter: localStorage.getItem('lv_shelter') !== '0' };   // show the item lists (with their edit fields) next to the grids; the shelter has too many items for the grid-only view
   var WARN = localStorage.getItem('warnunsaved') !== '0', noWarnOnce = false;   // warn about changes that are not in an edited copy yet
   var XMAGS = localStorage.getItem('xmags') === '1';   // offer magazines of other weapons with the same ammo (needs a cross-compatibility mod)
   function saveModSizes() { localStorage.setItem('modsizes', JSON.stringify(MODSZ)); }
@@ -657,11 +658,11 @@
       (cont.length ? cont.map(cdet).join('') : '<p class="meta">No containers here.</p>') + ldet;
   }
   async function renderShelter() {
-    var v = pageEl('shelter'), l = await list();
+    var v = pageEl('shelter'), l = await list(); fitCells('shelter');
     if (SS.src !== 'live' && !l.some(function (m) { return m.id === SS.src; })) SS.src = 'live';
     var dir = SS.src === 'live' ? saveDir : j(j(bakDir, SS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.shelter ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#ssrc').value = SS.src; return; }
     var shelters = [];
     try {
@@ -673,7 +674,7 @@
       }
     } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#ssrc').value = SS.src; return; }
     shelters.sort(function (a, b) { return a.n.localeCompare(b.n); });
-    v.innerHTML = head + iconHint() + '<div class="shlayout"><div class="shmain">' + (shelters.map(function (s) { return s.h; }).join('') || '<div class="empty">No shelter files found in this save.</div>') + '</div><aside class="insp">' + INSP_PH + '</aside></div>'; v.classList.toggle('lv', LV);
+    v.innerHTML = head + iconHint() + '<div class="shlayout"><div class="shmain">' + (shelters.map(function (s) { return s.h; }).join('') || '<div class="empty">No shelter files found in this save.</div>') + '</div><aside class="insp">' + (SS.edit ? INSP_EDIT : INSP_VIEW) + '</aside></div>'; v.classList.toggle('lv', LV.shelter);
     $('#ssrc').value = SS.src;
     fillIcons();
     applyDefs();
@@ -1212,7 +1213,7 @@
       rc.addEventListener('change', function () { rm.checked = rc.checked; rm.dispatchEvent(new window.Event('change', { bubbles: true })); }); box.appendChild(rl);
     }
     if (wp) { var wb = document.createElement('button'); wb.textContent = wp.textContent; wb.addEventListener('click', function () { wp.click(); }); box.appendChild(wb); }
-    if (cancel) { var cb = document.createElement('button'); cb.textContent = 'Cancel this new item'; cb.addEventListener('click', function () { cancel.click(); insp.innerHTML = INSP_PH; insp._row = null; }); box.appendChild(cb); }
+    if (cancel) { var cb = document.createElement('button'); cb.textContent = 'Cancel this new item'; cb.addEventListener('click', function () { cancel.click(); insp.innerHTML = inspPh(insp.closest('.pg')); insp._row = null; }); box.appendChild(cb); }
     fillIcons();
   }
   function selectItem(el, row) {
@@ -1223,7 +1224,7 @@
   function refreshInsp() {
     document.querySelectorAll('#view .insp').forEach(function (insp) {
       if (!insp._row) return;
-      if (!insp._row.isConnected) { insp.innerHTML = INSP_PH; insp._row = null; return; }
+      if (!insp._row.isConnected) { insp.innerHTML = inspPh(insp.closest('.pg')); insp._row = null; return; }
       if (insp.contains(document.activeElement)) return;
       fillInsp(insp, insp._row);
     });
@@ -1234,7 +1235,14 @@
     if (!el) { el = document.createElement('section'); el.id = 'pg-' + name; el.className = 'pg'; v.appendChild(el); }
     return el;
   }
-  function showPage(name) { pageEl(name); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.hidden = e.id !== 'pg-' + name; }); }
+  // cell size of the grids on a page: as large as the window allows (never above the game's 64 px), remembered per page
+  function applyCell(name) { var c = +(pageEl(name).dataset.cell) || 44; CELLPX = c; EQ_CELL = Math.min(64, c + 12); }
+  function fitCells(name) {
+    var avail = ($('#view').clientWidth || 0) - 60, c = 44;
+    if (name === 'inventory' && !LV.inventory && avail > 0) c = Math.max(44, Math.min(64, Math.floor((avail - 340 - 36) / 14)));
+    pageEl(name).dataset.cell = c; if (page === name) applyCell(name);
+  }
+  function showPage(name) { pageEl(name); applyCell(name); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.hidden = e.id !== 'pg-' + name; }); }
   function dropPages() { document.querySelectorAll('#view > section.pg').forEach(function (e) { e.remove(); }); }
   function resetAllPages() { IS.edit = false; SS.edit = false; TS.edit = false; dropPages(); }
   // one working source (the live save or a snapshot) for all editors, so their changes can go into one edited copy
@@ -1379,7 +1387,7 @@
         return;
       }
       else if (act === 'batch-discard') { if (!(await ask('Discard all changes?', 'Everything you changed on every page, that is not in an edited copy yet, is lost.', { ok: 'Discard all' }))) return; resetAllPages(); }
-      else if (act === 'lv-toggle') { LV = !LV; localStorage.setItem('listview', LV ? '1' : '0'); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.classList.toggle('lv', LV); }); document.querySelectorAll('[data-act="lv-toggle"]').forEach(function (x) { x.textContent = LV ? 'Hide list view' : 'List view'; }); return; }
+      else if (act === 'lv-toggle') { var lpg = b.closest('.pg'), lk = lpg && lpg.id === 'pg-shelter' ? 'shelter' : 'inventory'; LV[lk] = !LV[lk]; localStorage.setItem('lv_' + lk, LV[lk] ? '1' : '0'); lpg.classList.toggle('lv', LV[lk]); b.textContent = LV[lk] ? 'Hide list view' : 'List view'; return; }
       else if (act === 'wp-close') { b.closest('tr.wrow').hidden = true; return; }
       else if (act === 'chkupd') { await checkUpdate(true); }
       else if (act === 'open-url') return T.opener.openUrl(b.dataset.url);
@@ -1436,6 +1444,7 @@
     } catch (e) { toast('Startup error: ' + e); }
     document.body.insertAdjacentHTML('beforeend', '<div id="pbar" hidden><span id="pcount"></span><button data-act="batch-create" class="pri">Create edited copy</button><button data-act="batch-discard">Discard all</button></div><datalist id="itemlist"></datalist>');
     ['input', 'change', 'click'].forEach(function (evn) { document.addEventListener(evn, schedPending); });
+    var rzT = 0; window.addEventListener('resize', function () { clearTimeout(rzT); rzT = setTimeout(function () { if (!pendingChanges() && !IS.edit && !SS.edit && (page === 'inventory' || page === 'shelter')) render(); }, 300); });
     document.addEventListener('change', function () { setTimeout(refreshInsp, 0); });
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') document.querySelectorAll('tr.wrow:not([hidden])').forEach(function (w) { w.hidden = true; }); });
     try {

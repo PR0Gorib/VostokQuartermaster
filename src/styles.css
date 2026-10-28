@@ -120,7 +120,7 @@ pre.diag{white-space:pre-wrap;word-break:break-all;background:var(--bg);border:1
 #pbar[hidden]{display:none}#pcount{color:#f0a78f;font-weight:600}
 section.pg[hidden]{display:none}
 /* ---- inventory and shelter layout: visuals first, inspector on the right, list view optional ---- */
-.invlayout{display:grid;grid-template-columns:auto auto minmax(250px,340px);gap:18px;align-items:start}
+.invlayout{display:grid;grid-template-columns:auto auto minmax(250px,1fr);gap:18px;align-items:start}
 .ilcol{min-width:0}.ilcol h3{margin-top:0}
 .pg:not(.lv) .ctab{width:0;height:0;overflow:hidden;visibility:hidden;margin:0;padding:0}   /* hidden but still rendered, so the weapon dialog inside it can show */
 .pg:not(.lv) .cbody{grid-template-columns:auto;row-gap:0}
@@ -141,3 +141,5 @@ section.pg[hidden]{display:none}
 .wrow>td{visibility:visible;position:fixed;left:0;top:0;right:0;bottom:0;z-index:60;background:#000b;display:flex;align-items:center;justify-content:center;padding:0;border:0}
 .wmodal{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 20px 14px;width:min(660px,94vw);max-height:92vh;overflow:auto;box-shadow:0 12px 48px #000c}
 .wmodal h4{margin:0 0 6px;font-size:16px}.wclose{position:absolute;right:10px;top:8px;padding:2px 9px;font-size:16px;line-height:20px}
+.insp{width:100%;max-width:400px;box-sizing:border-box}
+.eql{white-space:normal;line-height:1.1;max-width:100%;overflow:hidden;word-break:break-word}

@@ -374,10 +374,10 @@
     var boxes = EQ_LAYOUT.map(function (b) {
       var s = by[b[0].toLowerCase()]; if (s) used[b[0].toLowerCase()] = true;
       return '<div class="eqs' + (s ? ' has' : (EDIT_ON ? ' eqe' : '')) + '" data-slot="' + esc(b[0]) + '" data-c="' + b[1] + '" data-r="' + b[2] + '" data-w="' + b[3] + '" data-h="' + b[4] + '"' + (s ? ' data-path="' + esc(s.path) + '" data-nested="' + esc((s.attp || []).join('|')) + '" data-cond="' + s.cond + '" data-qty="' + s.qty + '" title="' + esc(s.name + ' (' + b[0] + ')') + '"' : ' title="' + esc(b[0]) + ' (empty)"') + '>' +
-        (s ? (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '<span class="eqn">' + esc(s.name) + '</span><span class="eqc"></span><span class="eqa"></span>' + (EDIT_ON && s.sid ? '<button class="eqx" data-act="eq-rm" title="Remove this item">&times;</button>' : '') : '<span class="eql">' + esc(b[0]) + '</span>') + '</div>';
+        (s ? (/^res:\/\/Items\//i.test(s.path || '') ? '<img data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '<span class="eqn">' + esc(s.name) + '</span><span class="eqc"></span><span class="eqa"></span>' + (EDIT_ON && s.sid ? '<button class="eqx" data-act="eq-rm" title="Remove this item">&times;</button>' : '') : '<span class="eql">' + esc(b[0].replace('_', ' ')) + '</span>') + '</div>';
     }).join('');
     var other = eq.filter(function (s) { return !used[String(s.slot).toLowerCase()]; });
-    return '<div class="cgrid eqgrid">' + boxes + '</div>' + (other.length ? '<p class="meta">Other equipped (slot not on the screen): ' + other.map(function (s) { return esc(s.name) + ' (' + esc(s.slot || 'no slot') + ')'; }).join(', ') + '</p>' : '') + '<p class="meta">Click an item to find it in the list.</p>';
+    return '<div class="cgrid eqgrid">' + boxes + '</div>' + (other.length ? '<p class="meta">Other equipped (slot not on the screen): ' + other.map(function (s) { return esc(s.name) + ' (' + esc(s.slot || 'no slot') + ')'; }).join(', ') + '</p>' : '') + '<p class="meta">Click an item to select it.</p>';
   }
   // sizes and positions are set from code (the CSP does not allow inline style attributes)
   async function layoutEquip() {
@@ -417,7 +417,7 @@
     CUR_CID = INV_CID; var inv = map('inventory'); CUR_CID = '';
     return '<h2>Character</h2><div class="invlayout"><div class="ilcol"><h3>Equipment</h3><div class="cbody"><div class="ctab"><h3>Equipped</h3>' + itemTable(rowsHtml(eq, false)) + '</div><div class="cgwrap">' + eqPanelHtml(eq) + (EDIT_ON ? eqBarHtml() : '') + '</div></div></div>' +
       '<div class="ilcol carried"><h3>Carried &middot; ' + inv.length + ' items &middot; ' + INV_W + '&times;' + INV_H + ' grid</h3>' + (EDIT_ON ? addBarHtml(CUR_FILE, INV_CID, INV_W, INV_H, 'Carried items') : '') + '<div class="cbody"><div class="ctab"><h3>Carried</h3>' + itemTable(rowsHtml(inv, true), EDIT_ON) + '</div><div class="cgwrap">' + gridHtml({ dims: [INV_W, INV_H], items: inv }) + '</div></div></div>' +
-      '<aside class="insp">' + (EDIT_ON ? INSP_EDIT : INSP_VIEW) + '</aside></div>';
+      '<div class="insp">' + (EDIT_ON ? INSP_EDIT : INSP_VIEW) + '</div></div>';
   }
   // Uses the item definitions in the game files: hides condition/quantity where the game has none, caps the quantity at the stack limit.
   async function applyDefs() {
@@ -438,7 +438,7 @@
     }
   }
   async function renderInventory() {
-    var v = pageEl('inventory'), l = await list(); fitCells('inventory');
+    var v = pageEl('inventory'), l = await list();
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
@@ -658,7 +658,7 @@
       (cont.length ? cont.map(cdet).join('') : '<p class="meta">No containers here.</p>') + ldet;
   }
   async function renderShelter() {
-    var v = pageEl('shelter'), l = await list(); fitCells('shelter');
+    var v = pageEl('shelter'), l = await list();
     if (SS.src !== 'live' && !l.some(function (m) { return m.id === SS.src; })) SS.src = 'live';
     var dir = SS.src === 'live' ? saveDir : j(j(bakDir, SS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
@@ -674,7 +674,7 @@
       }
     } catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; $('#ssrc').value = SS.src; return; }
     shelters.sort(function (a, b) { return a.n.localeCompare(b.n); });
-    v.innerHTML = head + iconHint() + '<div class="shlayout"><div class="shmain">' + (shelters.map(function (s) { return s.h; }).join('') || '<div class="empty">No shelter files found in this save.</div>') + '</div><aside class="insp">' + (SS.edit ? INSP_EDIT : INSP_VIEW) + '</aside></div>'; v.classList.toggle('lv', LV.shelter);
+    v.innerHTML = head + iconHint() + '<div class="shlayout"><div class="shmain">' + (shelters.map(function (s) { return s.h; }).join('') || '<div class="empty">No shelter files found in this save.</div>') + '</div><div class="insp">' + (SS.edit ? INSP_EDIT : INSP_VIEW) + '</div></div>'; v.classList.toggle('lv', LV.shelter);
     $('#ssrc').value = SS.src;
     fillIcons();
     applyDefs();
@@ -1235,14 +1235,7 @@
     if (!el) { el = document.createElement('section'); el.id = 'pg-' + name; el.className = 'pg'; v.appendChild(el); }
     return el;
   }
-  // cell size of the grids on a page: as large as the window allows (never above the game's 64 px), remembered per page
-  function applyCell(name) { var c = +(pageEl(name).dataset.cell) || 44; CELLPX = c; EQ_CELL = Math.min(64, c + 12); }
-  function fitCells(name) {
-    var avail = ($('#view').clientWidth || 0) - 60, c = 44;
-    if (name === 'inventory' && !LV.inventory && avail > 0) c = Math.max(44, Math.min(64, Math.floor((avail - 340 - 36) / 14)));
-    pageEl(name).dataset.cell = c; if (page === name) applyCell(name);
-  }
-  function showPage(name) { pageEl(name); applyCell(name); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.hidden = e.id !== 'pg-' + name; }); }
+  function showPage(name) { pageEl(name); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.hidden = e.id !== 'pg-' + name; }); }
   function dropPages() { document.querySelectorAll('#view > section.pg').forEach(function (e) { e.remove(); }); }
   function resetAllPages() { IS.edit = false; SS.edit = false; TS.edit = false; dropPages(); }
   // one working source (the live save or a snapshot) for all editors, so their changes can go into one edited copy
@@ -1444,7 +1437,6 @@
     } catch (e) { toast('Startup error: ' + e); }
     document.body.insertAdjacentHTML('beforeend', '<div id="pbar" hidden><span id="pcount"></span><button data-act="batch-create" class="pri">Create edited copy</button><button data-act="batch-discard">Discard all</button></div><datalist id="itemlist"></datalist>');
     ['input', 'change', 'click'].forEach(function (evn) { document.addEventListener(evn, schedPending); });
-    var rzT = 0; window.addEventListener('resize', function () { clearTimeout(rzT); rzT = setTimeout(function () { if (!pendingChanges() && !IS.edit && !SS.edit && (page === 'inventory' || page === 'shelter')) render(); }, 300); });
     document.addEventListener('change', function () { setTimeout(refreshInsp, 0); });
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') document.querySelectorAll('tr.wrow:not([hidden])').forEach(function (w) { w.hidden = true; }); });
     try {

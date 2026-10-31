@@ -1098,6 +1098,7 @@
     var f = function (n) { return Number.isInteger(n) ? n.toFixed(1) : String(+n.toFixed(4)); };
     if (e.t === 'num') { var n = parseFloat(e.v); if (isNaN(n)) throw new Error(e.label + ' is not a number'); return f(Math.min(100, Math.max(0, n))); }
     if (e.t === 'int') { var i = parseInt(e.v, 10); if (isNaN(i) || i < 1) throw new Error(e.label + ' must be 1 or more'); return String(i); }
+    if (e.t === 'int0') { var i0 = parseInt(e.v, 10); if (isNaN(i0) || i0 < 0 || i0 > 100) throw new Error(e.label + ' must be between 0 and 100'); return String(i0); }
     if (e.t === 'time') { var p = String(e.v).split(':'), h = parseInt(p[0], 10), mi = parseInt(p[1], 10); if (isNaN(h) || isNaN(mi)) throw new Error('Time is not valid'); var tv = h * 100 + mi * 100 / 60; return Number.isInteger(tv) ? f(tv) : String(Math.ceil(tv * 10000 - 1e-9) / 10000); }
     throw new Error('Unknown field type');
   }
@@ -1125,31 +1126,90 @@
     var gv = function (t, k) { var x = t.get(t.main(), k); return x === undefined ? null : String(x).replace(/^"|"$/g, ''); };
     var attrs = function (f, k, ty, label, init, extra) { return ' data-f="' + f + '" data-k="' + k + '" data-t="' + ty + '" data-label="' + esc(label) + '" data-init="' + esc(init) + '"' + (extra || ''); };
     var html = head;
+    var chkHtml = function (x, cls) {
+      var on = gv(ch, x[0]) === 'true';
+      return '<label class="chip ' + cls + '" data-bx><input type="checkbox"' + (on ? ' checked' : '') + attrs('Character', x[0], 'bool', x[1], String(on)) + '><span>' + esc(x[1]) + '</span></label>';
+    };
+    var rb = function (label) { return '<div class="vh"><span>' + esc(label) + '</span><button class="rst" data-act="ed-reset" title="Reset to the saved value" aria-label="Reset ' + esc(label) + '">\u21ba</button></div>'; };
+    var meterHtml = function (x) {
+      var init = String(+parseFloat(gv(ch, x[0])).toFixed(2));
+      return '<div class="vc" data-bx>' + rb(x[1]) +
+        '<div class="vr"><input type="range" min="0" max="100" step="1" value="' + init + '" data-w="sl" aria-label="' + esc(x[1]) + ' slider"><input type="number" min="0" max="100" step="1" value="' + init + '" aria-label="' + esc(x[1]) + '"' + attrs('Character', x[0], 'num', x[1], init) + '></div>' +
+        (x[0] === 'reputation' ? '<div class="vhint" data-hint="rep"></div>' : '') + '</div>';
+    };
+    var has = function (x) { return gv(ch, x[0]) !== null; };
+    var pick = function (keys, list) { return keys.map(function (k) { return list.filter(function (x) { return x[0] === k; })[0]; }).filter(function (x) { return x && has(x); }); };
     if (ch) {
-      html += '<h2>Character</h2><div class="fgrid">' + METERS.filter(function (x) { return gv(ch, x[0]) !== null; }).map(function (x) {
-        var init = String(+parseFloat(gv(ch, x[0])).toFixed(2));
-        return '<label class="fld">' + esc(x[1]) + '<input type="number" min="0" max="100" step="1" value="' + init + '"' + attrs('Character', x[0], 'num', x[1], init) + '></label>';
-      }).join('') + '</div><h3>Conditions</h3><div class="fgrid">' + CONDS.filter(function (x) { return gv(ch, x[0]) !== null; }).map(function (x) {
-        var on = gv(ch, x[0]) === 'true';
-        return '<label class="fld chk"><input type="checkbox"' + (on ? ' checked' : '') + attrs('Character', x[0], 'bool', x[1], String(on)) + '> ' + esc(x[1]) + '</label>';
-      }).join('') + '</div>';
+      var vit = pick(['health', 'energy', 'hydration', 'temperature', 'mental', 'reputation'], METERS), stm = pick(['bodyStamina', 'armStamina'], METERS), cat = pick(['cat'], METERS);
+      var ccat = pick(['catFound', 'catDead'], CONDS), shown = {};
+      var grp = function (title, keys) {
+        var xs = pick(keys, CONDS); xs.forEach(function (x) { shown[x[0]] = 1; });
+        return xs.length ? '<h3>' + title + '</h3><div class="chips">' + xs.map(function (x) { return chkHtml(x, ''); }).join('') + '</div>' : '';
+      };
+      html += '<h2>Character</h2>';
+      if (vit.length) html += '<h3>Vitals</h3><div class="vgrid">' + vit.map(meterHtml).join('') + '</div>';
+      if (stm.length) html += '<h3>Stamina</h3><div class="vgrid">' + stm.map(meterHtml).join('') + '</div>';
+      var cg = grp('Injuries', ['bleeding', 'fracture', 'burn', 'frostbite', 'rupture', 'headshot']) + grp('Needs', ['overweight', 'starvation', 'dehydration', 'poisoning']) + grp('Mind', ['insanity']);
+      var rest = CONDS.filter(function (x) { return has(x) && !shown[x[0]] && ccat.indexOf(x) === -1; });
+      if (rest.length) cg += '<h3>Other conditions</h3><div class="chips">' + rest.map(function (x) { return chkHtml(x, ''); }).join('') + '</div>';
+      html += cg;
+      if (cat.length || ccat.length) html += '<h3>Cat</h3>' + (cat.length ? '<div class="vgrid">' + cat.map(meterHtml).join('') + '</div>' : '') + (ccat.length ? '<div class="chips">' + ccat.map(function (x) { return chkHtml(x, 'neu'); }).join('') + '</div>' : '');
     } else html += '<div class="empty">No Character.tres in this save.</div>';
     if (wo) {
       var sel = function (k, label, pairs, cur) {
         if (!pairs.some(function (p) { return p[0] === cur; })) pairs = pairs.concat([[cur, cur]]);
         var txt = (pairs.filter(function (p) { return p[0] === cur; })[0] || [0, cur])[1];
-        return '<label class="fld">' + esc(label) + '<select' + attrs('World', k, k === 'weather' ? 'str' : 'int', label, cur, ' data-init-text="' + esc(txt) + '"') + '>' + pairs.map(function (p) { return '<option value="' + esc(p[0]) + '"' + (p[0] === cur ? ' selected' : '') + '>' + esc(p[1]) + '</option>'; }).join('') + '</select></label>';
+        var head2 = rb(label); if (k === 'difficulty') head2 = head2.replace('</span>', '</span><span class="tag iron" data-iron hidden>Ironman</span>');
+        return '<div class="fld wf" data-bx>' + head2 + '<select aria-label="' + esc(label) + '"' + attrs('World', k, k === 'weather' ? 'str' : 'int', label, cur, ' data-init-text="' + esc(txt) + '"') + '>' + pairs.map(function (p) { return '<option value="' + esc(p[0]) + '"' + (p[0] === cur ? ' selected' : '') + '>' + esc(p[1]) + '</option>'; }).join('') + '</select></div>';
       };
-      var day = gv(wo, 'day'), tm = gv(wo, 'time'), tinit = tm !== null && !isNaN(parseFloat(tm)) ? fmtTime(parseFloat(tm)) : null;
+      var day = gv(wo, 'day'), tm = gv(wo, 'time'), tinit = tm !== null && !isNaN(parseFloat(tm)) ? fmtTime(parseFloat(tm)) : null, nr = gv(wo, 'nomadsRemaining');
       html += '<h2>World</h2><div class="fgrid">' +
-        (day !== null ? '<label class="fld">Day<input type="number" min="1" step="1" value="' + esc(day) + '"' + attrs('World', 'day', 'int', 'Day', day) + '></label>' : '') +
-        (tinit ? '<label class="fld">Time of day<input type="time" value="' + tinit + '"' + attrs('World', 'time', 'time', 'Time', tinit) + '></label>' : '') +
+        (day !== null ? '<div class="fld wf" data-bx>' + rb('Day') + '<input type="number" min="1" step="1" value="' + esc(day) + '" aria-label="Day"' + attrs('World', 'day', 'int', 'Day', day) + '></div>' : '') +
+        (tinit ? '<div class="fld wf" data-bx>' + rb('Time of day') + '<input type="time" value="' + tinit + '" aria-label="Time of day"' + attrs('World', 'time', 'time', 'Time', tinit) + '></div>' : '') +
         (gv(wo, 'season') !== null ? sel('season', 'Season', [['1', 'Summer'], ['2', 'Winter']], gv(wo, 'season')) : '') +
         (gv(wo, 'difficulty') !== null ? sel('difficulty', 'Difficulty', [['1', 'Standard'], ['2', 'Darkness'], ['3', 'Ironman']], gv(wo, 'difficulty')) : '') +
-        (gv(wo, 'weather') !== null ? sel('weather', 'Weather', WEATHER.map(function (w) { return [w, w]; }), gv(wo, 'weather')) : '') + '</div>';
+        (gv(wo, 'weather') !== null ? sel('weather', 'Weather', WEATHER.map(function (w) { return [w, w]; }), gv(wo, 'weather')) : '') +
+        (nr !== null && /^\d+$/.test(nr) ? '<div class="fld wf" data-bx>' + rb('Nomads remaining') + '<input type="number" min="0" max="100" step="1" value="' + esc(nr) + '" aria-label="Nomads remaining"' + attrs('World', 'nomadsRemaining', 'int0', 'Nomads remaining', nr) + '><div class="vhint">Nomad Gatherings follow this number. A new save starts at 100.</div></div>' : '') + '</div>';
     } else html += '<div class="empty">No World.tres in this save.</div>';
-    v.innerHTML = html; $('#esrc').value = ES.src;
+    v.innerHTML = html; $('#esrc').value = ES.src; edSyncAll();
   }
+  /* character page: slider/number sync, "changed" highlight, reputation hint */
+  function edMark(el) {
+    var bx = el.closest('[data-bx]'); if (!bx) return;
+    bx.classList.toggle('chg', (el.type === 'checkbox' ? String(el.checked) : el.value) !== el.dataset.init);
+  }
+  function edHints() {
+    var root = document.getElementById('pg-edit'); if (!root) return;
+    var rp = root.querySelector('[data-k="reputation"]'), hp = root.querySelector('[data-hint="rep"]');
+    if (rp && hp) {
+      var n = parseFloat(rp.value);
+      hp.textContent = isNaN(n) ? '' : n >= 50 ? 'Roaming Nomads will trade with you (wiki: 50 or more).' : 'Below 50, roaming Nomads are hostile and will not trade (per the wiki).';
+      hp.classList.toggle('good', !isNaN(n) && n >= 50); hp.classList.toggle('bad', !isNaN(n) && n < 50);
+    }
+    var df = root.querySelector('[data-k="difficulty"]'), it = root.querySelector('[data-iron]');
+    if (df && it) it.hidden = df.value !== '3';
+  }
+  function edSyncAll() {
+    document.querySelectorAll('#pg-edit [data-k]').forEach(function (el) {
+      var bx = el.closest('[data-bx]'), sl = bx && bx.querySelector('input[data-w="sl"]');
+      if (sl && el.type === 'number') sl.value = el.value;
+      edMark(el);
+    });
+    edHints();
+  }
+  function edSync(ev) {
+    var t = ev.target; if (!t.closest || !t.closest('#pg-edit')) return;
+    var bx = t.closest('[data-bx]'); if (!bx) return;
+    if (t.dataset.w === 'sl') { var nm = bx.querySelector('input[data-k]'); if (nm) nm.value = t.value; }
+    else if (t.dataset.k) {
+      var sl = bx.querySelector('input[data-w="sl"]');
+      if (sl) { if (ev.type === 'change' && t.value !== '' && !isNaN(+t.value)) t.value = Math.min(100, Math.max(0, +t.value)); sl.value = t.value; }
+    }
+    var k = bx.querySelector('[data-k]'); if (k) edMark(k);
+    edHints();
+  }
+  document.addEventListener('input', edSync);
+  document.addEventListener('change', edSync);
 
   /* ---------- views ---------- */
   async function renderSnapshots() {
@@ -1328,9 +1388,15 @@
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; if (IS.src === id) { IS.src = SS.src = TS.src = ES.src = 'live'; resetAllPages(); } }
       else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
+      else if (act === 'ed-reset') {
+        var rbx = b.closest('[data-bx]'); if (!rbx) return;
+        rbx.querySelectorAll('[data-k]').forEach(function (el) { if (el.type === 'checkbox') el.checked = el.dataset.init === 'true'; else el.value = el.dataset.init; el.dispatchEvent(new window.Event('input', { bubbles: true })); });
+        return;
+      }
       else if (act === 'heal') {
         HEAL_M.forEach(function (k) { var el = document.querySelector('[data-f="Character"][data-k="' + k + '"]'); if (el) el.value = '100'; });
         HEAL_C.forEach(function (k) { var el = document.querySelector('[data-f="Character"][data-k="' + k + '"]'); if (el) el.checked = false; });
+        edSyncAll();
         toast('Meters set to 100 and conditions cleared. Review, then create the copy.'); return;
       }
       else if (act === 'batch-create' || act === 'mkedit' || act === 'inv-apply' || act === 'sh-apply' || act === 'tr-apply') { await createBatch(); }

@@ -968,7 +968,7 @@
   }
 
   /* ---------- traders (read-only) ---------- */
-  var TS = { src: 'live', edit: false };
+  var TS = { src: 'live', edit: false, sel: '' };
   // task totals from the wiki (roadtovostok.wiki/traders); unknown traders just show the completed count
   var TRADERS = { generalist: ['Generalist', 10, 100], doctor: ['Doctor', 10, 200], gunsmith: ['Gunsmith', 10, 300], driver: ['Driver', 10, 200], hunter: ['Hunter', 10, 200] };
   // the 10 tasks of every trader, in the game's own order (file names under res://Traders/<Trader>/Tasks/NN_<stem>.tres)
@@ -986,24 +986,43 @@
     if (!folder || !stems) return null;
     return stems.split(' ').map(function (s, i) { return { name: QUEST_NAMES[s] || s.replace(/_/g, ' '), path: 'res://Traders/' + folder + '/Tasks/' + (i < 9 ? '0' : '') + (i + 1) + '_' + s + '.tres' }; });
   }
-  function questCardHtml(k, meta, pic, done, np) {
+  function trPic(name, big) { return '<span class="tb' + (big ? ' lg' : '') + '"><img class="tpic" data-ic="res://Traders/' + esc(name) + '/' + esc(name) + '.tres" alt="" hidden>' + glyph('trader') + '</span>'; }
+  function trTax(meta, n, total) { return Math.round(meta[2] * Math.max(0, 1 - n / total)); }
+  function questCardHtml(k, meta, done, np, edit, shown) {
     var qs = questsOf(k), n = 0;
     var rows = qs.map(function (q, i) {
       var st = done.indexOf(q.name) !== -1 ? 'done' : np[q.path] ? 'prog' : 'none';
       if (st === 'done') n++;
-      return '<tr><td>' + esc(q.name) + '</td><td class="qi" data-qp="' + esc(q.path) + '"></td><td><select data-w="q" data-k="' + k + '" data-i="' + i + '" data-init="' + st + '">' + ['none', 'prog', 'done'].map(function (v) { return '<option value="' + v + '"' + (v === st ? ' selected' : '') + '>' + QSTATE[v] + '</option>'; }).join('') + '</select></td></tr>';
+      var ctl = edit
+        ? '<select data-w="q" data-k="' + k + '" data-i="' + i + '" data-init="' + st + '" aria-label="' + esc(q.name) + '" hidden>' + ['none', 'prog', 'done'].map(function (v) { return '<option value="' + v + '"' + (v === st ? ' selected' : '') + '>' + QSTATE[v] + '</option>'; }).join('') + '</select>' +
+          '<div class="seg" role="group" aria-label="' + esc(q.name) + ' state">' + ['none', 'prog', 'done'].map(function (v) { return '<button type="button" class="sg' + (v === st ? ' on' : '') + '" data-act="tr-seg" data-v="' + v + '">' + QSTATE[v] + '</button>'; }).join('') + '</div>'
+        : '<span class="qs qs-' + st + '">' + QSTATE[st] + '</span>';
+      return '<div class="trow" data-st="' + st + '"><span class="tn">' + pad(i + 1) + '</span><div class="tt"><b>' + esc(q.name) + '</b><div class="qi" data-qp="' + esc(q.path) + '"></div></div><div class="tctl">' + ctl + '</div></div>';
     }).join('');
     var other = done.filter(function (x) { return !qs.some(function (q) { return q.name === x; }); });
-    return '<div class="snap"><div class="tw">' + pic + '<div><h4>' + esc(meta[0]) + '<span class="tag qcount' + (n ? ' man' : '') + '">' + n + ' / ' + qs.length + ' tasks done</span><span class="tag qtax" data-base="' + meta[2] + '" title="Base tax, minus a tenth of it for every task done.">Tax ' + Math.round(meta[2] * Math.max(0, 1 - n / qs.length)) + '%</span></h4>' +
-      '<div class="qbar"><button data-act="tr-all" data-to="done">Complete all</button><button data-act="tr-all" data-to="none">Reset all</button></div>' +
-      '<table class="itm"><thead><tr><th>Task</th><th>Needs \u2192 Reward</th><th>State</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-      (other.length ? '<div class="meta">Other completed tasks (not editable here): ' + other.map(esc).join(', ') + '</div>' : '') + '</div></div></div>';
+    return '<div class="trp" data-k="' + k + '"' + (shown ? '' : ' hidden') + '><div class="trh">' + trPic(meta[0], true) +
+      '<div class="trm"><h2>' + esc(meta[0]) + '</h2><div class="trs"><span class="tag qcount' + (n ? ' man' : '') + '">' + n + ' / ' + qs.length + ' tasks done</span><span class="tag qtax" data-base="' + meta[2] + '" title="Base tax ' + meta[2] + '%, minus a tenth of it for every task done.">Tax ' + trTax(meta, n, qs.length) + '%</span></div>' +
+      '<progress class="trpr" max="' + qs.length + '" value="' + n + '"></progress></div>' +
+      (edit ? '<div class="qbar"><button data-act="tr-all" data-to="done">Complete all</button><button data-act="tr-all" data-to="none">Reset all</button></div>' : '') + '</div>' +
+      (edit ? '<p class="meta trnote">Completing a task here does not hand out its reward: add rewards with Task rewards on the Inventory or Shelter page.</p>' : '') +
+      '<div class="tlist">' + rows + '</div>' +
+      (other.length ? '<div class="meta">Other completed tasks (not editable here): ' + other.map(esc).join(', ') + '</div>' : '') +
+      '<h3>Can stock</h3><div class="stk" data-k="' + k + '"><div class="meta">Loading...</div></div></div>';
   }
-  function qUpdate(card) {
-    var sel = card.querySelectorAll('select[data-w="q"]'), n = 0, c = card.querySelector('.qcount'), x = card.querySelector('.qtax');
-    sel.forEach(function (s) { if (s.value === 'done') n++; });
-    c.textContent = n + ' / ' + sel.length + ' tasks done'; c.classList.toggle('man', n > 0);
-    if (x) x.textContent = 'Tax ' + Math.round(+x.dataset.base * Math.max(0, 1 - n / sel.length)) + '%';
+  function qUpdate(p) {
+    if (!p) return;
+    var sel = p.querySelectorAll('select[data-w="q"]'), n = 0, total = sel.length, k = p.dataset.k, meta = TRADERS[k];
+    sel.forEach(function (s) {
+      var row = s.closest('.trow'); if (s.value === 'done') n++;
+      row.dataset.st = s.value; row.classList.toggle('chg', s.value !== s.dataset.init);
+      row.querySelectorAll('.sg').forEach(function (b) { b.classList.toggle('on', b.dataset.v === s.value); });
+    });
+    var c = p.querySelector('.qcount'), x = p.querySelector('.qtax'), pr = p.querySelector('progress'), tax = meta ? trTax(meta, n, total) : 0;
+    c.textContent = n + ' / ' + total + ' tasks done'; c.classList.toggle('man', n > 0);
+    if (x) x.textContent = 'Tax ' + tax + '%';
+    if (pr) pr.value = n;
+    var t = document.querySelector('#pg-traders .ttile[data-k="' + k + '"]');
+    if (t) { t.querySelector('.tc').textContent = n + ' / ' + total + ' done'; t.querySelector('.tx').textContent = 'Tax ' + tax + '%'; }
   }
   function collectQuestEdits() {
     var out = [];
@@ -1037,21 +1056,92 @@
     return { out: { 'Traders.tres': t.serialize() } };
   }
   function tradersHtml(t, edit) {
+    var m = t.main(), ext = extMap(t), np = {};
+    ids(inner(t.get(m, 'taskNotes')), 'ExtResource').forEach(function (i) { np[ext[i] || ''] = true; });
+    var known = t.keys(m).filter(function (k) { return QUEST_STEMS[k] && TRADERS[k]; });
+    if (known.indexOf(TS.sel) === -1) TS.sel = known[0] || '';
+    var done = function (k) { return (inner(t.get(m, k)).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (s) { return s.slice(1, -1); }); };
+    var tiles = known.map(function (k) {
+      var meta = TRADERS[k], d = done(k), n = questsOf(k).filter(function (q) { return d.indexOf(q.name) !== -1; }).length, tot = meta[1];
+      return '<button type="button" class="ttile' + (k === TS.sel ? ' on' : '') + '" data-act="tr-pick" data-k="' + k + '">' + trPic(meta[0]) + '<span class="tnm">' + esc(meta[0]) + '</span><span class="tmeta tc">' + n + ' / ' + tot + ' done</span><span class="tmeta tx">Tax ' + trTax(meta, n, tot) + '%</span></button>';
+    }).join('');
+    var panels = known.map(function (k) { return questCardHtml(k, TRADERS[k], done(k), np, edit, k === TS.sel); }).join('');
+    return '<p class="meta" id="trnote" hidden></p>' + (known.length ? '<div class="ttiles">' + tiles + '</div>' + panels : '') + tradersOther(t, edit);
+  }
+  function tradersOther(t, edit) {
     var m = t.main(), ext = extMap(t), notes = {}, np = {};
     ids(inner(t.get(m, 'taskNotes')), 'ExtResource').forEach(function (i) {
       np[ext[i] || ''] = true;
       var p = ext[i] || '', mm = /Traders\/([^\/]+)\//.exec(p), k = mm ? mm[1].toLowerCase() : 'other';
       (notes[k] = notes[k] || []).push(p.split('/').pop().replace(/\.tres$/i, '').replace(/^\d+_/, '').replace(/_/g, ' '));
     });
-    return t.keys(m).filter(function (k) { return k !== 'script' && k !== 'taskNotes' && k !== 'grandma'; }).map(function (k) {
+    return t.keys(m).filter(function (k) { return k !== 'script' && k !== 'taskNotes' && k !== 'grandma' && !QUEST_STEMS[k]; }).map(function (k) {
       var done = (inner(t.get(m, k)).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (s) { return s.slice(1, -1); });
       var meta = TRADERS[k] || [k.charAt(0).toUpperCase() + k.slice(1), null], act = notes[k] || [];
       var pic = '<span class="tb"><img class="tpic" data-ic="res://Traders/' + esc(meta[0]) + '/' + esc(meta[0]) + '.tres" alt="" hidden>' + glyph('trader') + '</span>';
-      if (edit && QUEST_STEMS[k]) return questCardHtml(k, meta, pic, done, np);
       return '<div class="snap"><div class="tw">' + pic + '<div><h4>' + esc(meta[0]) + '<span class="tag ' + (done.length ? 'man' : '') + '">' + done.length + (meta[1] ? ' / ' + meta[1] : '') + ' tasks done</span>' + (meta[2] ? '<span class="tag" title="Base tax, minus a tenth of it for every task done.">Tax ' + Math.round(meta[2] * Math.max(0, 1 - done.length / meta[1])) + '%</span>' : '') + '</h4>' +
         (done.length ? '<div class="meta wi">' + done.map(esc).join(' &middot; ') + '</div>' : '<div class="meta">No tasks completed yet.</div>') +
         (act.length ? '<div class="meta">In progress: ' + act.map(esc).join(', ') + '</div>' : '') + '</div></div></div>';
     }).join('');
+  }
+  // Bundled fallback: what each trader can stock (item file name : value : rarity C/R/L), from the 0.2.3.1 loot tables. Only used when the game files give no loot table.
+  var STOCK_FB = {
+    generalist: 'Ammo_12x70:200:C Ammo_45ACP:250:C Ammo_762x39:350:C Ammo_9x18:200:C Ammo_9x19:250:C AKM_Magazine:110:C AKS_74U_Magazine:100:C Colt_1911_Magazine:75:C Jatimatic_Magazine:50:R MP5_Magazine:60:C Makarov_Magazine:25:C PBS:330:R EXPS:850:R Kobra:350:R Micro:450:R PRO:650:R PU:400:R Backpack_Nomad:100:C Duffel_Retro:75:C Boots_Combat:160:C Gloves_Leather:25:C Gloves_Work:15:C Hat_Mosquito:20:C Hoodie_Gray:25:C Jacket_M62:125:C Jacket_Winter_Blue:40:C Jacket_Winter_Red:40:C Jeans_Black:30:C Pants_Hiking:40:C Windbreaker_Black:35:C Windbreaker_Green:35:C Canned_Meat:150:C Canned_Meatballs:100:C Canned_Peaches:120:C Canned_Pear:120:C Canned_Peas:80:C Canned_Pineapple:120:C Canned_Tomatoes:80:C Canned_Tuna:60:C Crackers:50:C Juice_Orange:50:C Juice_Pear:50:C Juice_Raspberry:50:C Peanuts:40:C Soda_Lemon:100:R Hotplate:250:C Narva:180:C Bed_Civilian:2750: Cabinet_Medical:350: Cabinet_Office:420: Cabinet_Wood:470: Carpet_Persian:250: Carpet_Rag:150: Chair_Office:220: Cupboard:275: Curtain_Long:120: Curtain_Mini:35: Dartboard:350: Freezer:950: Fridge:475: Nightstand:350: Painting_Lake:180: Pallet:50: Rack_Coat:50: Rya_Maria:250: Shelf_Wall:65: Shelf_Wood:320: Sofa_Leather:2400: Stool_Padded:120: Stove:2250: Table_Cabin:870: Table_Kitchen:320: Table_Office:380: Jaeger_140:150:C Bandage:150:C Cold_Medicine:75:C Blanket:75:C Map:250:R Mattress:110:C Vest_Fishing:140:C M28:450:C Mosin:450:C Colt_1911:550:C Makarov:250:C AKM:1200:C AKS_74U:850:C MP5K:1850:C Remington_870:550:C',
+    doctor: 'Energy_Powder:100:R Alarm_Clock:150:C Hotplate:250:C Cabinet_Office:420: Chair_School:250: Locker:1850: Shelf_Metal:520: Table_Office:380: Trolley_Short:380: Trolley_Tall:580: Balm:85:C Bandage:150:C Cold_Medicine:75:C Gum:40:C Lotion:75:C Melatonin:75:C Painkillers:150:C Rags:20:C Splint:150:C Tissues:50:C Tourniquet:150:C Wipes:120:R Bucket:25:C Pillow:50:C Toilet_Paper:25:C',
+    gunsmith: 'Ammo_12x70:200:C Ammo_223:300:C Ammo_308:400:R Ammo_45ACP:250:C Ammo_545x39:325:C Ammo_762x39:350:C Ammo_9x18:200:C Ammo_9x19:250:C Armor_Plate_II:200:R Armor_Plate_III:300:R Armor_Plate_IIIA:250:R Armor_Plate_III_Plus:400:R KAR_21_Barrel:350:R AKM_Magazine:110:C AKS_74U_Magazine:100:C Colt_1911_Magazine:75:C Glock_17_Magazine:90:C HP_DA_Magazine:80:C Jatimatic_Magazine:50:R KAR_21_223_Magazine:150:R KAR_21_308_Magazine:170:R MP5_Magazine:60:C Makarov_Magazine:25:C P320_Magazine:110:R RK_Magazine:120:C STANAG_Magazine:125:C Hybrid:750:R Monster:820:R Navy:880:R PBS:330:R Rider:800:R SOCOM:810:R ACOG:950:R EXPS:850:R Kobra:350:R MRO:740:R Micro:450:R POSP:650:R PRO:650:R PU:400:R RMR:820:R Backpack_Jaeger_Black:250:R Backpack_Jaeger_Brown:250:R Backpack_Jaeger_Green:250:R Backpack_Jaeger_M05:250:R Backpack_Kantamus:390:R Backpack_Patrol:200:R Kukkaro_Black:70:C Kukkaro_Brown:70:C Kukkaro_Green:70:C Kukkaro_M05:70:C Boots_Combat:160:C Cap_M62:75:C Fleece_Tactical_Brown:80:C Fleece_Tactical_Green:80:C Gloves_Leather:25:C Jacket_M62:125:C Chocolate_War:350:R Field_Ration:475:R Digital_Military_Wrist_Watch:400:R Narva:180:C Polaris:375:R Crate_Military:1200: Crate_Special:3500: Stool_Military:190: Table_Canteen:380: Target_Stand:1500: Weapon_Display:5000: F1:350:R M43:450:R RGD_5:350:R Helmet_Police:480:R SSh_39:240:C Jaeger_140:150:C Happy_Stove:220:R Jerry_Can:120:R Map_Tactical:250:R Mess_Kit:250:R Sleeping_Bag:450:R Weapon_Repair_Kit:2750:R Matches:20:C K19:450:R LVPC_Green:380:R LVPC_M05:380:R M28:450:C Mosin:450:C Colt_1911:550:C Glock_17:700:C HP_DA:550:C Makarov:250:C P320:1150:R AKM:1200:C AKS_74U:850:C KAR_21_223:3800:R KAR_21_308:4200:R M4A1:3850:C RK_62:2200:C RK_95:2200:C Jatimatic:1250:R MP5:2450:C MP5K:1850:C Remington_870:550:C',
+    driver: 'Duffel_Retro:75:C Gloves_Work:15:C Hoodie_Gray:25:C Jacket_Winter_Blue:40:C Jacket_Winter_Red:40:C Jeans_Black:30:C Water_Bottle:300:R Beer:250:R Cigarettes:125:R Cigars:450:R Coffee:175:R Peanuts:40:C Salty_Liquorice:75:R Snus:125:R Soda_Lemon:100:R Batteries:100:R Battery:250:R Battery_Cables:50:C Casette_Player:250:L Inverter:220:R Casette_Electrofolk:150:R Casette_Radio:150:R Casette_Symphony:150:R Board_Game:140:R Duct_Tape:50:C Jerry_Can:120:R Map:250:R Oil_Filter:180:R Pillow:50:C Toolbox:375:R',
+    hunter: 'Sticks:25:C Ammo_12x70:200:C Ammo_223:300:C Ammo_308:400:R Ammo_45ACP:250:C Ammo_762x54R:375:C Ammo_9x18:200:C Ammo_9x19:250:C AKM_Magazine:110:C AKS_74U_Magazine:100:C Colt_1911_Magazine:75:C HP_DA_Magazine:80:C Makarov_Magazine:25:C Backpack_Nomad:100:C Gloves_Leather:25:C Gloves_Work:15:C Pants_Hiking:40:C Canned_Meat:150:C Kilju:1000: Mustard:75:R Peanuts:40:C Potato:10:C Yeast:25:C Narva:180:C Fishing_Rod:480:R Bed_Nomad:350: Bench_Campsite:350: Pallet:50: Guitar:1280:L Jaeger_140:150:C Skrama_200:250:R Skrama_240:450:R Bandage_Improvised:75: Rags:20:C Splint_Improvised:125: Tourniquet_Improvised:75: Bucket:25:C Happy_Stove:220:R Lumber:150:C Mattress:110:C Sleeping_Bag:450:R Tackle_Box:370:R Matches:20:C Vest_Fishing:140:C M28:450:C Mosin:450:C Colt_1911:550:C HP_DA:550:C Makarov:250:C AKM:1200:C AKS_74U:850:C Remington_870:550:C'
+  };
+  /* ---------- what a trader can stock (read from the game files; bundled list as a fallback) ---------- */
+  function itemChips(paths) {
+    var n = {}, order = [];
+    paths.forEach(function (p) { if (!n[p]) { n[p] = 0; order.push(p); } n[p]++; });
+    return order.map(function (p) {
+      var fur = !/^res:\/\/Items\//i.test(p), nm = Tres.itemName(p).replace(/ F$/, '');
+      return '<span class="ichip" title="' + esc(nm + (fur ? ' (furniture)' : '')) + '"><span class="ti"><img data-ic="' + esc(p) + '" alt="" hidden>' + glyph('misc') + '</span>' + esc(nm) + (n[p] > 1 ? ' \u00d7' + n[p] : '') + '</span>';
+    }).join('');
+  }
+  function stockFb(k) { return (STOCK_FB[k] || '').split(' ').filter(Boolean).map(function (s) { var a = s.split(':'); return { stem: a[0], value: +a[1] || 0, rar: a[2] || '' }; }); }
+  function stemIndex() {
+    if (IC.stems) return IC.stems;
+    var ix = {};
+    IC.pack.names.forEach(function (n) {
+      var m = /^Items\/[^\/]+\/[^\/]+\/([^\/]+)\.tres\.remap$/.exec(n);
+      if (m && n.indexOf('/Files/') === -1) { ix[m[1].toLowerCase()] = 'res://' + n.replace(/\.remap$/, ''); return; }
+      m = /^Assets\/([^\/]+)\/[^\/]+_F\.tres\.remap$/.exec(n);
+      if (m) ix[m[1].toLowerCase()] = 'res://' + n.replace(/\.remap$/, '');
+    });
+    return (IC.stems = ix);
+  }
+  async function fillStock(k) {
+    var box = document.querySelector('#pg-traders .stk[data-k="' + k + '"]'), meta = TRADERS[k];
+    if (!box || !meta || box.dataset.ready) return;
+    if (!gameDir) { box.innerHTML = '<div class="meta">Set the game folder in Settings to see this.</div>'; return; }
+    try { await iconPack(); } catch (e) { box.innerHTML = '<div class="meta">Could not read the game files.</div>'; return; }
+    box.dataset.ready = '1';
+    var live, items = [], note, fb = stockFb(k), miss = 0;
+    try { live = await Pck.traderStock(IC.pack, meta[0]); } catch (e) { live = { ok: false, error: String(e && e.message || e), candidates: [] }; }
+    if (live.ok) { items = live.items.map(function (p) { return { path: p, value: 0, rar: '' }; }); note = 'Read from the game files.'; }
+    else {
+      var ix = stemIndex();
+      fb.forEach(function (s) { var p = ix[s.stem.toLowerCase()]; if (p) items.push({ path: p, value: s.value, rar: s.rar }); else miss++; });
+      note = 'The game files did not give this trader\'s loot table, so this is Quartermaster\'s bundled list (game version 0.2.3.1)' + (miss ? '; ' + miss + ' of its items were not found in your game files' : '') + '.';
+    }
+    var RAR = { C: 'Common', R: 'Rare', L: 'Legendary' }, groups = {};
+    for (var it of items) {
+      var d = null; try { d = await Pck.itemDef(IC.pack, it.path); } catch (e) { d = null; }
+      var cm = /^res:\/\/Items\/([^\/]+)\//.exec(it.path), cat = cm ? cm[1] : 'Furniture';
+      var val = d && d.ok && d.value > 0 ? d.value : it.value, rar = d && d.ok && d.rarity ? d.rarity : (RAR[it.rar] || '');
+      (groups[cat] = groups[cat] || []).push({ path: it.path, name: Tres.itemName(it.path).replace(/ F$/, ''), val: val, rar: rar });
+    }
+    var cats = Object.keys(groups).sort();
+    var diag = live.ok ? 'Source: ' + live.file + ' (' + live.key + '), ' + items.length + ' items. The bundled list has ' + fb.length + '.' : String(live.error) + '\n' + (live.candidates || []).join('\n');
+    box.innerHTML = '<div class="meta stn">' + esc(note) + ' What a trader actually has on the shelf can vary.</div>' + (cats.length ? cats.map(function (c) {
+      return '<h4 class="sh">' + esc(c) + ' <span class="cnt">' + groups[c].length + '</span></h4><div class="sgrid">' + groups[c].sort(function (a, b) { return a.name < b.name ? -1 : 1; }).map(function (x) {
+        return '<div class="sitem" title="' + esc(x.name) + '"><span class="ti"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph('misc') + '</span><span class="sn">' + esc(x.name) + '</span>' + (x.rar === 'Rare' || x.rar === 'Legendary' ? '<span class="tag">' + esc(x.rar) + '</span>' : '') + (x.val ? '<span class="sv">\u20ac' + x.val + '</span>' : '') + '</div>';
+      }).join('') + '</div>';
+    }).join('') : '<div class="meta">Nothing to show.</div>') + '<details><summary>Details</summary><pre class="diag">' + esc(diag) + '</pre></details>';
+    fillIcons();
   }
   async function renderTraders() {
     var v = pageEl('traders'), l = await list();
@@ -1063,7 +1153,7 @@
     catch (err) { v.innerHTML = head + '<div class="empty bad">Could not read the save: ' + esc(err) + '</div>'; }
     $('#tsrc').value = TS.src;
     fillIcons();
-    if (TS.edit) fillQuestInfo();
+    fillQuestInfo(); fillStock(TS.sel);
   }
   // "Needs -> Reward" text for each task row, read from the game files
   function itemList(paths) {
@@ -1075,13 +1165,17 @@
     }).join(', ');
   }
   async function fillQuestInfo() {
-    var cells = Array.prototype.slice.call(document.querySelectorAll('#view td.qi'));
-    if (!gameDir) { cells.forEach(function (c) { c.textContent = 'Set the game folder in Settings to see this.'; }); return; }
-    try { await iconPack(); } catch (e) { cells.forEach(function (c) { c.textContent = 'Could not read the game files.'; }); return; }
+    var cells = Array.prototype.slice.call(document.querySelectorAll('#view .qi')), note = $('#trnote');
+    if (note) note.hidden = true;
+    if (!cells.length) return;
+    var say = function (m) { if (note) { note.textContent = m; note.hidden = false; } };
+    if (!gameDir) { say('Set the game folder in Settings to see what each task needs and gives.'); return; }
+    try { await iconPack(); } catch (e) { say('Could not read the game files.'); return; }
     for (var c of cells) {
       var d = await Pck.taskDef(IC.pack, c.dataset.qp);
-      c.innerHTML = d && d.ok ? '<b>Needs:</b> ' + (itemList(d.deliver) || '-') + '<br><b>Reward:</b> ' + (itemList(d.receive) || '-') : 'Not found in the game files.';
+      c.innerHTML = d && d.ok ? '<div class="qrow"><span class="ql">Needs</span>' + (itemChips(d.deliver) || '-') + '</div><div class="qrow"><span class="ql">Reward</span>' + (itemChips(d.receive) || '-') + '</div>' : 'Not found in the game files.';
     }
+    fillIcons();
   }
 
 
@@ -1427,7 +1521,18 @@
         if (TS.edit && collectQuestEdits().length && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return;
         TS.edit = !TS.edit;
       }
-      else if (act === 'tr-all') { var qc = b.closest('.snap'); qc.querySelectorAll('select[data-w="q"]').forEach(function (s) { s.value = b.dataset.to; }); qUpdate(qc); return; }
+      else if (act === 'tr-pick') {
+        TS.sel = b.dataset.k;
+        document.querySelectorAll('#pg-traders .trp').forEach(function (p) { p.hidden = p.dataset.k !== TS.sel; });
+        document.querySelectorAll('#pg-traders .ttile').forEach(function (t) { t.classList.toggle('on', t.dataset.k === TS.sel); });
+        fillStock(TS.sel); return;
+      }
+      else if (act === 'tr-seg') {
+        var sg = b.closest('.trow').querySelector('select[data-w="q"]');
+        if (sg.value !== b.dataset.v) { sg.value = b.dataset.v; sg.dispatchEvent(new window.Event('change', { bubbles: true })); }
+        return;
+      }
+      else if (act === 'tr-all') { var qc = b.closest('.trp'); qc.querySelectorAll('select[data-w="q"]').forEach(function (s) { s.value = b.dataset.to; }); qUpdate(qc); return; }
       else if (act === 'forgetsize') { delete MODSZ[b.dataset.p]; saveModSizes(); }
       else if (act === 'wp-open') {
         var wtr = b.closest('tr'), wn = wtr.nextElementSibling;
@@ -1467,7 +1572,7 @@
     var srcMap = { esrc: ES, tsrc: TS, isrc: IS, ssrc: SS }, sm = srcMap[ev.target.id];
     if (sm && !(await leaveOk())) { ev.target.value = sm.src; return; }
     var cw = ev.target.dataset && ev.target.dataset.w;
-    if (cw === 'q') { qUpdate(ev.target.closest('.snap')); return; }
+    if (cw === 'q') { qUpdate(ev.target.closest('.trp')); return; }
     if (cw === 'wopt') { var ww = ev.target.closest('tr.wrow'); wsUpdate(ev.target); wbSync(ww, false); var wr = ww.previousElementSibling; if (wr && wr.dataset.rig === '1') { var wcc = wr.querySelector('.cc'), wp = Array.prototype.some.call(ww.querySelectorAll('select[data-w="wopt"]'), function (x) { return !!x.value; }); if (wcc && !wcc.querySelector('input')) wcc.innerHTML = wp ? '<span class="meta">100% on saving</span>' : '<span class="meta">n/a</span>'; else if (wcc) { var ci = wcc.querySelector('input'); if (ci) { var wasP = wr.dataset.plated === '1'; if (wp && !wasP) ci.value = 100; if (!wp) ci.value = 0; } } } return; }
     var eb0 = ev.target.closest('.eqbar');
     if (eb0) { if (ev.target.classList.contains('eqslot')) fillEqItems(eb0); else if (ev.target.classList.contains('eqitem')) fillEqAtt(eb0, false); return; }

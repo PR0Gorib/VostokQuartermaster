@@ -294,7 +294,7 @@
     if (o.error) return { ok: false, error: o.error };
     var p = o.props, stackable = !!p.stackable, sz = p.size && p.size.v2 ? p.size.v2 : [1, 1];
     return {
-      ok: true, type: p.type || '', size: [Math.max(1, Math.round(sz[0])), Math.max(1, Math.round(sz[1]))],
+      ok: true, type: p.type || '', value: typeof p.value === 'number' ? p.value : 0, rarity: typeof p.rarity === 'string' ? p.rarity : '', size: [Math.max(1, Math.round(sz[0])), Math.max(1, Math.round(sz[1]))],
       showCondition: !!p.showCondition, showAmount: !!p.showAmount, stackable: stackable,
       defaultAmount: typeof p.defaultAmount === 'number' ? p.defaultAmount : (stackable ? 1 : 0),
       maxAmount: typeof p.maxAmount === 'number' ? p.maxAmount : 0,
@@ -340,7 +340,41 @@
     pack._tasks[p] = def; return def;
   }
 
-  var Pck = { taskDef: taskDef, open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, itemDef: itemDef, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
+  // What a trader can stock: looks for a resource under Traders/<Folder>/ (not Tasks or Files) or a "loot" file named after the trader that holds a list of item
+  // references, and returns the biggest list. The layout of these tables is not documented, so this is a best-effort search; callers must have a fallback.
+  async function traderStock(pack, folder) {
+    var low = String(folder).toLowerCase(), cands = pack.names.filter(function (n) {
+      if (!/\.(tres|res)(\.remap)?$/.test(n) || /\/(Tasks|Files)\//.test(n)) return false;
+      return n.indexOf('Traders/' + folder + '/') === 0 || (/loot/i.test(n) && n.toLowerCase().indexOf(low) !== -1);
+    });
+    var best = null, seen = [];
+    var walk = function (v, out, d) {
+      if (!v || typeof v !== 'object' || d > 6) return;
+      if (typeof v.ext === 'string') { out.push(v.ext); return; }
+      if (Array.isArray(v)) { v.forEach(function (x) { walk(x, out, d + 1); }); return; }
+      Object.keys(v).forEach(function (k) { walk(v[k], out, d + 1); });
+    };
+    for (var i = 0; i < cands.length; i++) {
+      var n = cands[i], real = n;
+      try {
+        if (/\.remap$/.test(n)) { var m = /path="res:\/\/([^"]+)"/.exec(str(await pack.read(n))); real = m ? m[1] : ''; }
+        if (!real || !pack.has(real)) { seen.push(n + ' (no resource file)'); continue; }
+        var res = parseRes(await pack.read(real)); seen.push(real + ' (' + res.type + ')');
+        res.objects.forEach(function (o) {
+          Object.keys(o.props || {}).forEach(function (key) {
+            var refs = []; walk(o.props[key], refs, 0);
+            refs = refs.filter(function (r) { return /^res:\/\/(Items|Assets)\//.test(r); });
+            if (refs.length >= 3 && (!best || refs.length > best.items.length)) best = { file: real, key: key, items: refs };
+          });
+        });
+      } catch (e) { seen.push(n + ' (' + String(e && e.message || e) + ')'); }
+    }
+    if (!best) return { ok: false, error: cands.length ? 'No list of items found in these files:' : 'No loot table file found for this trader.', candidates: seen };
+    var u = {}; best.items = best.items.filter(function (x) { if (u[x]) return false; u[x] = 1; return true; });
+    return { ok: true, file: best.file, key: best.key, items: best.items };
+  }
+
+  var Pck = { traderStock: traderStock, taskDef: taskDef, open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, itemDef: itemDef, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
   root.Pck = Pck;
   if (typeof module !== 'undefined' && module.exports) module.exports = Pck;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1169,7 +1169,7 @@
         (gv(wo, 'season') !== null ? sel('season', 'Season', [['1', 'Summer'], ['2', 'Winter']], gv(wo, 'season')) : '') +
         (gv(wo, 'difficulty') !== null ? sel('difficulty', 'Difficulty', [['1', 'Standard'], ['2', 'Darkness'], ['3', 'Ironman']], gv(wo, 'difficulty')) : '') +
         (gv(wo, 'weather') !== null ? sel('weather', 'Weather', WEATHER.map(function (w) { return [w, w]; }), gv(wo, 'weather')) : '') +
-        (nr !== null && /^\d+$/.test(nr) ? '<div class="fld wf" data-bx>' + rb('Nomads remaining') + '<input type="number" min="0" max="100" step="1" value="' + esc(nr) + '" aria-label="Nomads remaining"' + attrs('World', 'nomadsRemaining', 'int0', 'Nomads remaining', nr) + '><div class="vhint">Nomad Gatherings follow this number. A new save starts at 100.</div></div>' : '') + '</div>';
+        (nr !== null && /^\d+$/.test(nr) ? '<div class="fld wf" data-bx>' + rb('Nomads remaining') + '<input type="number" min="0" max="100" step="1" value="' + esc(nr) + '" aria-label="Nomads remaining"' + attrs('World', 'nomadsRemaining', 'int0', 'Nomads remaining', nr) + '><div class="vhint">Nomad Gatherings follow this number. A new save starts at 100. Once all are killed, the game refills 10 to 50 after a while.</div></div>' : '') + '</div>';
     } else html += '<div class="empty">No World.tres in this save.</div>';
     v.innerHTML = html; $('#esrc').value = ES.src; edSyncAll();
   }
@@ -1183,7 +1183,7 @@
     var rp = root.querySelector('[data-k="reputation"]'), hp = root.querySelector('[data-hint="rep"]');
     if (rp && hp) {
       var n = parseFloat(rp.value);
-      hp.textContent = isNaN(n) ? '' : n >= 50 ? 'Roaming Nomads will trade with you (wiki: 50 or more).' : 'Below 50, roaming Nomads are hostile and will not trade (per the wiki).';
+      hp.textContent = isNaN(n) ? '' : n >= 50 ? 'Roaming Nomads will trade with you.' : 'Below 50, roaming Nomads are hostile and will not trade.';
       hp.classList.toggle('good', !isNaN(n) && n >= 50); hp.classList.toggle('bad', !isNaN(n) && n < 50);
     }
     var df = root.querySelector('[data-k="difficulty"]'), it = root.querySelector('[data-iron]');

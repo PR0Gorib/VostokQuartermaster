@@ -295,6 +295,7 @@
     var p = o.props, stackable = !!p.stackable, sz = p.size && p.size.v2 ? p.size.v2 : [1, 1];
     return {
       ok: true, type: p.type || '', value: typeof p.value === 'number' ? p.value : 0, rarity: ['Common', 'Rare', 'Legendary'][typeof p.rarity === 'number' ? p.rarity : 0] || '',
+      amount: typeof p.defaultAmount === 'number' ? p.defaultAmount : 0,
       sells: ['generalist', 'doctor', 'gunsmith', 'driver', 'hunter', 'grandma'].filter(function (k) { return p[k] === true; }), size: [Math.max(1, Math.round(sz[0])), Math.max(1, Math.round(sz[1]))],
       showCondition: !!p.showCondition, showAmount: !!p.showAmount, stackable: stackable,
       defaultAmount: typeof p.defaultAmount === 'number' ? p.defaultAmount : (stackable ? 1 : 0),

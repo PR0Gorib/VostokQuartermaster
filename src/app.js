@@ -1009,9 +1009,15 @@
       (other.length ? '<div class="meta">Other completed tasks (not editable here): ' + other.map(esc).join(', ') + '</div>' : '') +
       '<h3>Can stock</h3><div class="stk" data-k="' + k + '"><div class="meta">Loading...</div></div></div>';
   }
+  // Ammo is priced per full stack (its default amount); the price of one round is the stack price divided by the stack size.
+  function perRound(v, n) { var x = v / n; return x >= 10 ? Math.round(x) : +x.toFixed(2); }
+  function isAmmo(path, d) { return /^res:\/\/Items\/Ammo/i.test(path) || (d && /^ammo/i.test(String(d.type))); }
   function stockPrices(p) {
     var tax = +p.dataset.tax || 0;
-    p.querySelectorAll('.sv[data-v]').forEach(function (e) { e.textContent = '\u20ac' + Math.round(+e.dataset.v * (1 + tax / 100)); });
+    p.querySelectorAll('.sv[data-v]').forEach(function (e) {
+      var t = Math.round(+e.dataset.v * (1 + tax / 100)), n = +e.dataset.n || 0;
+      e.textContent = '\u20ac' + t + (n ? ' \u00b7 \u20ac' + perRound(t, n) + ' ea' : '');
+    });
   }
   function qUpdate(p) {
     if (!p) return;
@@ -1141,14 +1147,14 @@
       var d = null; try { d = await Pck.itemDef(IC.pack, it.path); } catch (e) { d = null; }
       var cm = /^res:\/\/Items\/([^\/]+)\//.exec(it.path), cat = cm ? cm[1] : 'Furniture';
       var val = d && d.ok && d.value > 0 ? d.value : it.value, rar = d && d.ok && d.rarity ? d.rarity : (RAR[it.rar] || '');
-      (groups[cat] = groups[cat] || []).push({ path: it.path, name: Tres.itemName(it.path).replace(/ F$/, ''), val: val, rar: rar });
+      (groups[cat] = groups[cat] || []).push({ path: it.path, name: Tres.itemName(it.path).replace(/ F$/, ''), val: val, rar: rar, amt: d && d.ok && d.amount > 0 && isAmmo(it.path, d) ? d.amount : 0 });
     }
     var cats = Object.keys(groups).sort();
     var diag = live.ok ? 'Source: ' + live.file + ' (' + live.key + '), ' + items.length + ' items. The bundled list has ' + fb.length + '.' :
       String(live.error) + '\n' + (live.candidates || []).join('\n') + ((live.others || []).length ? '\n\nOther loot-like files in the game:\n' + live.others.join('\n') : '') + (missed.length ? '\n\nBundled items not found in the game files:\n' + missed.join(', ') : '');
-    box.innerHTML = '<div class="meta stn">' + esc(note) + ' Prices are the base value plus this trader\'s tax, which drops as you finish their tasks. What a trader actually has on the shelf can vary.</div>' + (cats.length ? cats.map(function (c) {
+    box.innerHTML = '<div class="meta stn">' + esc(note) + ' Prices are the base value plus this trader\'s tax, which drops as you finish their tasks. Ammo is priced per stack, with the price of one round after the dot. What a trader actually has on the shelf can vary.</div>' + (cats.length ? cats.map(function (c) {
       return '<h4 class="sh">' + esc(c) + ' <span class="cnt">' + groups[c].length + '</span></h4><div class="sgrid">' + groups[c].sort(function (a, b) { return a.name < b.name ? -1 : 1; }).map(function (x) {
-        return '<div class="sitem" title="' + esc(x.name) + '"><span class="ti"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph('misc') + '</span><span class="sn">' + esc(x.name) + '</span>' + (x.rar === 'Rare' || x.rar === 'Legendary' ? '<span class="tag">' + esc(x.rar) + '</span>' : '') + (x.val ? '<span class="sv" data-v="' + x.val + '" title="Base value \u20ac' + x.val + ', plus the trader\'s tax">\u20ac' + x.val + '</span>' : '') + '</div>';
+        return '<div class="sitem" title="' + esc(x.name) + '"><span class="ti"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph('misc') + '</span><span class="sn">' + esc(x.name) + '</span>' + (x.rar === 'Rare' || x.rar === 'Legendary' ? '<span class="tag">' + esc(x.rar) + '</span>' : '') + (x.val ? '<span class="sv" data-v="' + x.val + '" data-n="' + x.amt + '" title="Base value \u20ac' + x.val + (x.amt ? ' for a stack of ' + x.amt + ' rounds' : '') + ', plus the trader\'s tax">\u20ac' + x.val + '</span>' : '') + '</div>';
       }).join('') + '</div>';
     }).join('') : '<div class="meta">Nothing to show.</div>') + '<details><summary>Details</summary><pre class="diag">' + esc(diag) + '</pre><div class="qbar"><button type="button" data-act="tr-diag" data-k="' + k + '">Collect more diagnostics</button><button type="button" data-act="tr-copy">Copy</button></div><pre class="diag dg"></pre></details>';
     stockPrices(box.closest('.trp'));
@@ -1274,9 +1280,16 @@
         (gv(wo, 'season') !== null ? sel('season', 'Season', [['1', 'Summer'], ['2', 'Winter']], gv(wo, 'season')) : '') +
         (gv(wo, 'difficulty') !== null ? sel('difficulty', 'Difficulty', [['1', 'Standard'], ['2', 'Darkness'], ['3', 'Ironman']], gv(wo, 'difficulty')) : '') +
         (gv(wo, 'weather') !== null ? sel('weather', 'Weather', WEATHER.map(function (w) { return [w, w]; }), gv(wo, 'weather')) : '') +
-        (nr !== null && /^\d+$/.test(nr) ? '<div class="fld wf" data-bx>' + rb('Nomads remaining') + '<input type="number" min="0" max="100" step="1" value="' + esc(nr) + '" aria-label="Nomads remaining"' + attrs('World', 'nomadsRemaining', 'int0', 'Nomads remaining', nr) + '><div class="vhint">Nomad Gatherings follow this number. A new save starts at 100. Once all are killed, the game refills 10 to 50 after a while.</div></div>' : '') + '</div>';
+        (nr !== null && /^\d+$/.test(nr) ? '<div class="fld wf" data-bx>' + rb('Nomads remaining') + '<input type="number" min="0" max="100" step="1" value="' + esc(nr) + '" aria-label="Nomads remaining"' + attrs('World', 'nomadsRemaining', 'int0', 'Nomads remaining', nr) + '><div class="vhint">Nomad Gatherings follow this number. A new save starts at 100. Once all are killed, the game refills 10 to 50 after a while.</div></div>' : '') + '</div>' + metHtml(wo);
     } else html += '<div class="empty">No World.tres in this save.</div>';
     v.innerHTML = html; $('#esrc').value = ES.src; edSyncAll();
+  }
+  // Nomads the player has met (World.tres nomadsDiscovered): a record only, shown read-only
+  function metHtml(wo) {
+    var raw = wo.get(wo.main(), 'nomadsDiscovered'); if (raw === undefined) return '';
+    var names = (String(raw).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (t) { try { return JSON.parse(t); } catch (e) { return t.slice(1, -1); } });
+    return '<h3>Nomads met (' + names.length + ')</h3><p class="meta">The Nomads you have talked to or discovered. It is only a record: it has no effect in game, and a Nomad stays on it after dying. Shown here, not editable.</p>' +
+      (names.length ? '<div class="chips">' + names.map(function (n) { return '<span class="chip nm">' + esc(n) + '</span>'; }).join('') + '</div>' : '<div class="meta">No Nomads met yet.</div>');
   }
   /* character page: slider/number sync, "changed" highlight, reputation hint */
   function edMark(el) {
@@ -1378,7 +1391,7 @@
       var rrow = document.createElement('div'), vrow = document.createElement('div'); rrow.className = vrow.className = 'ir'; box.appendChild(rrow); box.appendChild(vrow);
       itemInfo(path).then(function (d) {
         if (d && d.ok && d.rarity && rrow.isConnected) rrow.textContent = 'Rarity: ' + d.rarity; else rrow.remove();
-        if (d && d.ok && d.value > 0 && vrow.isConnected) { vrow.textContent = 'Value: \u20ac' + d.value; vrow.title = 'Base value from the game files. Traders add their tax on top.'; } else vrow.remove();
+        if (d && d.ok && d.value > 0 && vrow.isConnected) { var an = d.amount > 0 && isAmmo(path, d) ? d.amount : 0; vrow.textContent = 'Value: \u20ac' + d.value + (an ? ' per stack of ' + an + ' (\u20ac' + perRound(d.value, an) + ' each)' : ''); vrow.title = 'Base value from the game files. Traders add their tax on top.'; } else vrow.remove();
       });
     }
     if (rm) {

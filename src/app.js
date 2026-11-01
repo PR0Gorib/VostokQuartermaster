@@ -1102,14 +1102,15 @@
     }).join('');
   }
   function stockFb(k) { return (STOCK_FB[k] || '').split(' ').filter(Boolean).map(function (s) { var a = s.split(':'); return { stem: a[0], value: +a[1] || 0, rar: a[2] || '' }; }); }
+  function stemKey(x) { return String(x).toLowerCase().replace(/[^a-z0-9]/g, ''); }
   function stemIndex() {
     if (IC.stems) return IC.stems;
     var ix = {};
     IC.pack.names.forEach(function (n) {
-      var m = /^Items\/[^\/]+\/[^\/]+\/([^\/]+)\.tres\.remap$/.exec(n);
-      if (m && n.indexOf('/Files/') === -1) { ix[m[1].toLowerCase()] = 'res://' + n.replace(/\.remap$/, ''); return; }
-      m = /^Assets\/([^\/]+)\/[^\/]+_F\.tres\.remap$/.exec(n);
-      if (m) ix[m[1].toLowerCase()] = 'res://' + n.replace(/\.remap$/, '');
+      var m = /^Items\/(?:[^\/]+\/)+([^\/]+)\.tres\.remap$/.exec(n);
+      if (m && n.indexOf('/Files/') === -1) { ix[stemKey(m[1])] = 'res://' + n.replace(/\.remap$/, ''); return; }
+      m = /^Assets\/(?:[^\/]+\/)+([^\/]+?)(?:_F)?\.tres\.remap$/.exec(n);
+      if (m && n.indexOf('/Files/') === -1 && !ix[stemKey(m[1])]) ix[stemKey(m[1])] = 'res://' + n.replace(/\.remap$/, '');
     });
     return (IC.stems = ix);
   }
@@ -1119,12 +1120,15 @@
     if (!gameDir) { box.innerHTML = '<div class="meta">Set the game folder in Settings to see this.</div>'; return; }
     try { await iconPack(); } catch (e) { box.innerHTML = '<div class="meta">Could not read the game files.</div>'; return; }
     box.dataset.ready = '1';
-    var live, items = [], note, fb = stockFb(k), miss = 0;
+    var live, items = [], note, fb = stockFb(k), miss = 0, missed = [];
     try { live = await Pck.traderStock(IC.pack, meta[0]); } catch (e) { live = { ok: false, error: String(e && e.message || e), candidates: [] }; }
-    if (live.ok) { items = live.items.map(function (p) { return { path: p, value: 0, rar: '' }; }); note = 'Read from the game files.'; }
+    if (live.ok && fb.length && (live.items.length < fb.length * 0.5 || live.items.length > fb.length * 2)) {
+      live = { ok: false, error: 'Found ' + live.items.length + ' items in ' + live.file + ' (' + live.key + '), far from the ' + fb.length + ' in the bundled list, so it was ignored.', candidates: live.candidates || [], others: live.others || [] };
+    }
+    if (live.ok) { items = live.items.map(function (p) { return { path: p, value: 0, rar: '' }; }); note = 'Read from the game files: every item the game marks as sold by this trader.'; }
     else {
       var ix = stemIndex();
-      fb.forEach(function (s) { var p = ix[s.stem.toLowerCase()]; if (p) items.push({ path: p, value: s.value, rar: s.rar }); else miss++; });
+      fb.forEach(function (s) { var p = ix[stemKey(s.stem)]; if (p) items.push({ path: p, value: s.value, rar: s.rar }); else { miss++; missed.push(s.stem); } });
       note = 'The game files did not give this trader\'s loot table, so this is Quartermaster\'s bundled list (game version 0.2.3.1)' + (miss ? '; ' + miss + ' of its items were not found in your game files' : '') + '.';
     }
     var RAR = { C: 'Common', R: 'Rare', L: 'Legendary' }, groups = {};
@@ -1135,12 +1139,13 @@
       (groups[cat] = groups[cat] || []).push({ path: it.path, name: Tres.itemName(it.path).replace(/ F$/, ''), val: val, rar: rar });
     }
     var cats = Object.keys(groups).sort();
-    var diag = live.ok ? 'Source: ' + live.file + ' (' + live.key + '), ' + items.length + ' items. The bundled list has ' + fb.length + '.' : String(live.error) + '\n' + (live.candidates || []).join('\n');
+    var diag = live.ok ? 'Source: ' + live.file + ' (' + live.key + '), ' + items.length + ' items. The bundled list has ' + fb.length + '.' :
+      String(live.error) + '\n' + (live.candidates || []).join('\n') + ((live.others || []).length ? '\n\nOther loot-like files in the game:\n' + live.others.join('\n') : '') + (missed.length ? '\n\nBundled items not found in the game files:\n' + missed.join(', ') : '');
     box.innerHTML = '<div class="meta stn">' + esc(note) + ' What a trader actually has on the shelf can vary.</div>' + (cats.length ? cats.map(function (c) {
       return '<h4 class="sh">' + esc(c) + ' <span class="cnt">' + groups[c].length + '</span></h4><div class="sgrid">' + groups[c].sort(function (a, b) { return a.name < b.name ? -1 : 1; }).map(function (x) {
         return '<div class="sitem" title="' + esc(x.name) + '"><span class="ti"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph('misc') + '</span><span class="sn">' + esc(x.name) + '</span>' + (x.rar === 'Rare' || x.rar === 'Legendary' ? '<span class="tag">' + esc(x.rar) + '</span>' : '') + (x.val ? '<span class="sv">\u20ac' + x.val + '</span>' : '') + '</div>';
       }).join('') + '</div>';
-    }).join('') : '<div class="meta">Nothing to show.</div>') + '<details><summary>Details</summary><pre class="diag">' + esc(diag) + '</pre></details>';
+    }).join('') : '<div class="meta">Nothing to show.</div>') + '<details><summary>Details</summary><pre class="diag">' + esc(diag) + '</pre><div class="qbar"><button type="button" data-act="tr-diag" data-k="' + k + '">Collect more diagnostics</button><button type="button" data-act="tr-copy">Copy</button></div><pre class="diag dg"></pre></details>';
     fillIcons();
   }
   async function renderTraders() {
@@ -1520,6 +1525,16 @@
       else if (act === 'tr-edit') {
         if (TS.edit && collectQuestEdits().length && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return;
         TS.edit = !TS.edit;
+      }
+      else if (act === 'tr-diag') {
+        var dg = b.closest('details').querySelector('pre.dg'); dg.textContent = 'Working...';
+        try { dg.textContent = await Pck.stockDiag(IC.pack, TRADERS[b.dataset.k][0]); } catch (e) { dg.textContent = 'Failed: ' + String(e && e.message || e); }
+        return;
+      }
+      else if (act === 'tr-copy') {
+        var cp = b.closest('details').querySelectorAll('pre'), ctext = Array.prototype.map.call(cp, function (x) { return x.textContent; }).join('\n\n');
+        try { await navigator.clipboard.writeText(ctext); toast('Copied'); } catch (e) { toast('Could not copy: select the text and press Ctrl+C'); }
+        return;
       }
       else if (act === 'tr-pick') {
         TS.sel = b.dataset.k;

@@ -192,3 +192,5 @@ section.pg[hidden]{display:none}
 @media (max-width:900px){.trow{grid-template-columns:30px minmax(0,1fr)}.tctl{grid-column:2}}
 .trpr{appearance:none;-webkit-appearance:none;border:0;border-radius:4px;background:#0e1415;overflow:hidden}
 .trpr::-webkit-progress-bar{background:#0e1415;border-radius:4px}.trpr::-webkit-progress-value{background:var(--rust);border-radius:4px}
+pre.dg:empty{display:none}
+.tag.exp{border-color:#d9a441;color:#d9a441;text-transform:none;letter-spacing:0;font-size:11px}

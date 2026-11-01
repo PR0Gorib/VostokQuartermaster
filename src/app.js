@@ -1000,7 +1000,7 @@
       return '<div class="trow" data-st="' + st + '"><span class="tn">' + pad(i + 1) + '</span><div class="tt"><b>' + esc(q.name) + '</b><div class="qi" data-qp="' + esc(q.path) + '"></div></div><div class="tctl">' + ctl + '</div></div>';
     }).join('');
     var other = done.filter(function (x) { return !qs.some(function (q) { return q.name === x; }); });
-    return '<div class="trp" data-k="' + k + '"' + (shown ? '' : ' hidden') + '><div class="trh">' + trPic(meta[0], true) +
+    return '<div class="trp" data-k="' + k + '" data-tax="' + trTax(meta, n, qs.length) + '"' + (shown ? '' : ' hidden') + '><div class="trh">' + trPic(meta[0], true) +
       '<div class="trm"><h2>' + esc(meta[0]) + '</h2><div class="trs"><span class="tag qcount' + (n ? ' man' : '') + '">' + n + ' / ' + qs.length + ' tasks done</span><span class="tag qtax" data-base="' + meta[2] + '" title="Base tax ' + meta[2] + '%, minus a tenth of it for every task done.">Tax ' + trTax(meta, n, qs.length) + '%</span></div>' +
       '<progress class="trpr" max="' + qs.length + '" value="' + n + '"></progress></div>' +
       (edit ? '<div class="qbar"><button data-act="tr-all" data-to="done">Complete all</button><button data-act="tr-all" data-to="none">Reset all</button></div>' : '') + '</div>' +
@@ -1008,6 +1008,10 @@
       '<div class="tlist">' + rows + '</div>' +
       (other.length ? '<div class="meta">Other completed tasks (not editable here): ' + other.map(esc).join(', ') + '</div>' : '') +
       '<h3>Can stock</h3><div class="stk" data-k="' + k + '"><div class="meta">Loading...</div></div></div>';
+  }
+  function stockPrices(p) {
+    var tax = +p.dataset.tax || 0;
+    p.querySelectorAll('.sv[data-v]').forEach(function (e) { e.textContent = '\u20ac' + Math.round(+e.dataset.v * (1 + tax / 100)); });
   }
   function qUpdate(p) {
     if (!p) return;
@@ -1020,6 +1024,7 @@
     var c = p.querySelector('.qcount'), x = p.querySelector('.qtax'), pr = p.querySelector('progress'), tax = meta ? trTax(meta, n, total) : 0;
     c.textContent = n + ' / ' + total + ' tasks done'; c.classList.toggle('man', n > 0);
     if (x) x.textContent = 'Tax ' + tax + '%';
+    p.dataset.tax = tax; stockPrices(p);
     if (pr) pr.value = n;
     var t = document.querySelector('#pg-traders .ttile[data-k="' + k + '"]');
     if (t) { t.querySelector('.tc').textContent = n + ' / ' + total + ' done'; t.querySelector('.tx').textContent = 'Tax ' + tax + '%'; }
@@ -1141,11 +1146,12 @@
     var cats = Object.keys(groups).sort();
     var diag = live.ok ? 'Source: ' + live.file + ' (' + live.key + '), ' + items.length + ' items. The bundled list has ' + fb.length + '.' :
       String(live.error) + '\n' + (live.candidates || []).join('\n') + ((live.others || []).length ? '\n\nOther loot-like files in the game:\n' + live.others.join('\n') : '') + (missed.length ? '\n\nBundled items not found in the game files:\n' + missed.join(', ') : '');
-    box.innerHTML = '<div class="meta stn">' + esc(note) + ' What a trader actually has on the shelf can vary.</div>' + (cats.length ? cats.map(function (c) {
+    box.innerHTML = '<div class="meta stn">' + esc(note) + ' Prices are the base value plus this trader\'s tax, which drops as you finish their tasks. What a trader actually has on the shelf can vary.</div>' + (cats.length ? cats.map(function (c) {
       return '<h4 class="sh">' + esc(c) + ' <span class="cnt">' + groups[c].length + '</span></h4><div class="sgrid">' + groups[c].sort(function (a, b) { return a.name < b.name ? -1 : 1; }).map(function (x) {
-        return '<div class="sitem" title="' + esc(x.name) + '"><span class="ti"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph('misc') + '</span><span class="sn">' + esc(x.name) + '</span>' + (x.rar === 'Rare' || x.rar === 'Legendary' ? '<span class="tag">' + esc(x.rar) + '</span>' : '') + (x.val ? '<span class="sv">\u20ac' + x.val + '</span>' : '') + '</div>';
+        return '<div class="sitem" title="' + esc(x.name) + '"><span class="ti"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph('misc') + '</span><span class="sn">' + esc(x.name) + '</span>' + (x.rar === 'Rare' || x.rar === 'Legendary' ? '<span class="tag">' + esc(x.rar) + '</span>' : '') + (x.val ? '<span class="sv" data-v="' + x.val + '" title="Base value \u20ac' + x.val + ', plus the trader\'s tax">\u20ac' + x.val + '</span>' : '') + '</div>';
       }).join('') + '</div>';
     }).join('') : '<div class="meta">Nothing to show.</div>') + '<details><summary>Details</summary><pre class="diag">' + esc(diag) + '</pre><div class="qbar"><button type="button" data-act="tr-diag" data-k="' + k + '">Collect more diagnostics</button><button type="button" data-act="tr-copy">Copy</button></div><pre class="diag dg"></pre></details>';
+    stockPrices(box.closest('.trp'));
     fillIcons();
   }
   async function renderTraders() {
@@ -1252,7 +1258,7 @@
       var rest = CONDS.filter(function (x) { return has(x) && !shown[x[0]] && ccat.indexOf(x) === -1; });
       if (rest.length) cg += '<h3>Other conditions</h3><div class="chips">' + rest.map(function (x) { return chkHtml(x, ''); }).join('') + '</div>';
       html += cg;
-      if (cat.length || ccat.length) html += '<h3>Cat</h3>' + (cat.length ? '<div class="vgrid">' + cat.map(meterHtml).join('') + '</div>' : '') + (ccat.length ? '<div class="chips">' + ccat.map(function (x) { return chkHtml(x, 'neu'); }).join('') + '</div>' : '');
+      if (cat.length || ccat.length) html += '<h3>Cat <span class="tag exp">Experimental</span></h3><p class="meta">Cat editing needs more testing. The cat has to be found in game first, so these changes are untested and may do nothing.</p>' + (cat.length ? '<div class="vgrid">' + cat.map(meterHtml).join('') + '</div>' : '') + (ccat.length ? '<div class="chips">' + ccat.map(function (x) { return chkHtml(x, 'neu'); }).join('') + '</div>' : '');
     } else html += '<div class="empty">No Character.tres in this save.</div>';
     if (wo) {
       var sel = function (k, label, pairs, cur) {
@@ -1348,6 +1354,7 @@
     var c = row.cells[0].cloneNode(true); c.querySelectorAll('.ib,.tag,.meta,button,label,input,select').forEach(function (x) { x.remove(); });
     return c.textContent.trim() || row.dataset.name || row.dataset.q || 'Item';
   }
+  async function itemInfo(path) { try { await iconPack(); return await Pck.itemDef(IC.pack, path); } catch (e) { return null; } }
   function fillInsp(insp, row) {
     insp._row = row;
     var path = row.dataset.path || '', cat = row.dataset.cat || '', cc = row.querySelector('.cc'), qc = row.querySelector('.qc');
@@ -1367,6 +1374,13 @@
     if (ci) bind('Condition (%)', ci); else if (cc || row.cells[2]) ro('Condition', (cc || row.cells[2]).textContent.trim() || 'n/a');
     if (qi) bind(row.dataset.wp === '1' ? 'Rounds loaded' : 'Quantity', qi); else if (qc || row.cells[3]) { var qt = (qc || row.cells[3]).textContent.trim(); if (qt) ro('Quantity', qt); }
     if (att) ro('Fitted', att);
+    if (/^res:\/\/Items\//i.test(path) && gameDir) {
+      var rrow = document.createElement('div'), vrow = document.createElement('div'); rrow.className = vrow.className = 'ir'; box.appendChild(rrow); box.appendChild(vrow);
+      itemInfo(path).then(function (d) {
+        if (d && d.ok && d.rarity && rrow.isConnected) rrow.textContent = 'Rarity: ' + d.rarity; else rrow.remove();
+        if (d && d.ok && d.value > 0 && vrow.isConnected) { vrow.textContent = 'Value: \u20ac' + d.value; vrow.title = 'Base value from the game files. Traders add their tax on top.'; } else vrow.remove();
+      });
+    }
     if (rm) {
       var rl = document.createElement('label'); rl.className = 'ab-check'; var rc = document.createElement('input'); rc.type = 'checkbox'; rc.checked = rm.checked; rl.appendChild(rc); rl.appendChild(document.createTextNode(' Remove this item'));
       rc.addEventListener('change', function () { rm.checked = rc.checked; rm.dispatchEvent(new window.Event('change', { bubbles: true })); }); box.appendChild(rl);

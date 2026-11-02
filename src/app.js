@@ -442,7 +442,7 @@
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to your carried grid, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.inventory ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to your carried grid, then create an edited copy. Drag items on a grid to move them (R turns the item, arrow keys nudge the selected one, Ctrl+Z undoes). Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.inventory ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#isrc').value = IS.src; return; }
     var chars = '';
     try {
@@ -485,7 +485,7 @@
     if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 12 || +m[2] > 16) return null;
     MODSZ[path] = [+m[1], +m[2]]; saveModSizes(); return MODSZ[path];
   }
-  var invLine = function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.att && e.att.length ? ', with ' + e.att.map(function (a) { return Tres.itemName(a); }).join(', ') : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + (e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '') + (e.cond !== undefined && e.amt !== undefined ? ', ' : '') + (e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : ''); };
+  var invLine = function (e) { return e.weapon ? weaponLine(e) : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.att && e.att.length ? ', with ' + e.att.map(function (a) { return Tres.itemName(a); }).join(', ') : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + [e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '', e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : '', e.gx !== undefined ? 'moved from column ' + (e.fromGx / CELL + 1) + ', row ' + (e.fromGy / CELL + 1) + ' to column ' + (e.gx / CELL + 1) + ', row ' + (e.gy / CELL + 1) + (e.rot !== e.fromRot ? (e.rot ? ', turned' : ', turned back') : '') : ''].filter(Boolean).join(', '); };
   // plans every page's pending changes on top of each other (so two pages can change the same file) and writes ONE edited copy
   async function createBatch() {
     var ie = collectInvEdits().concat(collectAdds(), collectWeaponEdits()), qe = collectQuestEdits(), ce = collectEdits();
@@ -630,6 +630,132 @@
       if (msg) { msg.className = 'meta gmsg' + (issues.length ? ' bad' : ''); msg.textContent = (est ? 'Size unknown (modded furniture), so this grid is drawn from the items\' positions. ' : '') + (placed.length ? 'Items reach column ' + maxc + (est ? '' : ' of ' + W) + ' and row ' + maxr + (est ? '' : ' of ' + H) + '.' : 'Empty ' + W + '\u00d7' + H + ' grid.') + (unknown ? ' ' + unknown + ' item' + (unknown === 1 ? '' : 's') + ' of unknown size (drawn as 1\u00d71).' : '') + (issues.length ? ' ' + issues.slice(0, 4).join('; ') + (issues.length > 4 ? '; ...' : '') + '.' : ''); }
     }
   }
+  /* ---------- moving items on a grid (edit mode): drag, arrow keys, R to rotate, undo. Phase 1: inside the item's own container ---------- */
+  var MOVES = [], DRAG = null;   // MOVES: every committed move, newest last, for Ctrl+Z
+  function gBox(el) { return { col: Math.round(parseFloat(el.style.left) / CELLPX), row: Math.round(parseFloat(el.style.top) / CELLPX), w: Math.round(parseFloat(el.style.width) / CELLPX), h: Math.round(parseFloat(el.style.height) / CELLPX) }; }
+  // the table row that holds an item's data (its position is kept there for the edit collectors)
+  function gRow(el) { var gs = el.closest('.cbody') || document; return el.dataset.aid ? gs.querySelector('tr[data-aid="' + el.dataset.aid + '"]') : (el.dataset.k ? gs.querySelector('tr[data-ks~="' + el.dataset.k + '"]') : null); }
+  var gEditable = function (row) { return !!row && (row.classList.contains('er') || row.classList.contains('ea')); };
+  var gRot = function (el, row) { return (row && row.dataset.rot !== undefined ? row.dataset.rot : el.dataset.rot) === '1'; };
+  // the unrotated size in cells, from the box the item is drawn in now
+  function gBase(el, row) { var b = gBox(el); return gRot(el, row) ? [b.h, b.w] : [b.w, b.h]; }
+  // may the item sit at col,row with this size? Inside the grid and not on another item (a container of unknown size never allows moves)
+  function gFits(grid, el, col, row, w, h) {
+    var W = +grid.dataset.w, H = +grid.dataset.h;
+    if (grid.dataset.est === '1' || !(W > 0) || !(H > 0) || col < 0 || row < 0 || col + w > W || row + h > H) return false;
+    var all = grid.querySelectorAll('.gi');
+    for (var i = 0; i < all.length; i++) {
+      var o = all[i]; if (o === el || o.hidden) continue;
+      var b = gBox(o); if (col < b.col + b.w && b.col < col + w && row < b.row + b.h && b.row < row + h) return false;
+    }
+    return true;
+  }
+  // draws the item at its new place and records it in the row (the first time, also where it started)
+  function gApply(el, row, col, rw, rot) {
+    var base = gBase(el, row);
+    if (row && row.classList.contains('er') && row.dataset.ogx === undefined) { row.dataset.ogx = row.dataset.gx; row.dataset.ogy = row.dataset.gy; row.dataset.orot = row.dataset.rot; }
+    if (el.classList.contains('bad')) { el.dataset.wasbad = '1'; el.classList.remove('bad'); }
+    placeItem(el, col, rw, base, rot);
+    el.dataset.gx = col * CELL; el.dataset.gy = rw * CELL; el.dataset.rot = rot ? '1' : '0';
+    if (row) { row.dataset.gx = String(col * CELL); row.dataset.gy = String(rw * CELL); row.dataset.rot = rot ? '1' : '0'; }
+    var atOrig = !!row && row.dataset.ogx !== undefined && row.dataset.gx === row.dataset.ogx && row.dataset.gy === row.dataset.ogy && row.dataset.rot === row.dataset.orot;
+    el.classList.toggle('moved', !!row && row.dataset.ogx !== undefined && !atOrig);
+    el.classList.toggle('bad', el.dataset.wasbad === '1' && atOrig);
+    schedPending(); refreshInsp();
+  }
+  // a committed move (fits was checked by the caller or is checked here); returns whether it happened
+  function gMove(el, col, rw, rot) {
+    var row = gRow(el), grid = el.closest('.cgrid'); if (!grid || !gEditable(row)) return false;
+    var base = gBase(el, row), from = { col: gBox(el).col, row: gBox(el).row, rot: gRot(el, row) };
+    if (!gFits(grid, el, col, rw, rot ? base[1] : base[0], rot ? base[0] : base[1])) return false;
+    if (from.col === col && from.row === rw && from.rot === rot) return true;
+    MOVES.push({ el: el, from: from, to: { col: col, row: rw, rot: rot } });
+    gApply(el, row, col, rw, rot); return true;
+  }
+  // puts an item back where it was; refused (and nothing changes) if something else is on that spot now
+  function gRestore(el, spot) {
+    var row = gRow(el), grid = el.closest('.cgrid'), base = gBase(el, row);
+    var origSpot = !!row && row.dataset.ogx !== undefined && +row.dataset.ogx === spot.col * CELL && +row.dataset.ogy === spot.row * CELL && (row.dataset.orot === '1') === spot.rot;
+    if (!(el.dataset.wasbad === '1' && origSpot) && !gFits(grid, el, spot.col, spot.row, spot.rot ? base[1] : base[0], spot.rot ? base[0] : base[1])) { toast('Cannot undo: something else is on the old spot now.'); return false; }
+    gApply(el, row, spot.col, spot.row, spot.rot); return true;
+  }
+  function gUndo() {
+    while (MOVES.length && !MOVES[MOVES.length - 1].el.isConnected) MOVES.pop();
+    var m = MOVES[MOVES.length - 1]; if (!m) { toast('Nothing to undo.'); return; }
+    if (gRestore(m.el, m.from)) MOVES.pop();
+  }
+  // "Undo this move" in the inspector: back to where the item was when the page was loaded
+  function gUndoItem(row) {
+    var el = row.dataset.ks ? document.querySelector('#view .gi[data-k="' + row.dataset.ks.split(' ')[0] + '"]') : null; if (!el || row.dataset.ogx === undefined) return;
+    if (gRestore(el, { col: +row.dataset.ogx / CELL, row: +row.dataset.ogy / CELL, rot: row.dataset.orot === '1' })) MOVES = MOVES.filter(function (m) { return m.el !== el; });
+  }
+  function gDragEnd(commit) {
+    var d = DRAG; if (!d) return; DRAG = null;
+    if (d.prev) d.prev.remove();
+    d.el.classList.remove('drag');
+    placeItem(d.el, d.from.col, d.from.row, d.base, d.from.rot);   // back to where it was drawn; a valid drop then moves it properly
+    if (!d.started) return;
+    if (commit && d.valid) gMove(d.el, d.col, d.row, d.rot);
+    else if (commit) toast('It does not fit there.');
+  }
+  function gDragUpdate(d) {
+    var w = d.rot ? d.base[1] : d.base[0], h = d.rot ? d.base[0] : d.base[1];
+    d.valid = gFits(d.grid, d.el, d.col, d.row, w, h);
+    d.prev.className = 'gdrop ' + (d.valid ? 'ok' : 'bad');
+    d.prev.style.left = d.col * CELLPX + 'px'; d.prev.style.top = d.row * CELLPX + 'px'; d.prev.style.width = w * CELLPX + 'px'; d.prev.style.height = h * CELLPX + 'px';
+  }
+  document.addEventListener('pointerdown', function (ev) {
+    if (ev.button !== 0 || DRAG || !ev.target.closest) return;
+    var el = ev.target.closest('#view .cgrid:not(.eqgrid) .gi'); if (!el || el.hidden) return;
+    var row = gRow(el); if (!gEditable(row)) return;
+    var grid = el.closest('.cgrid'), r = grid.getBoundingClientRect(), b = gBox(el);
+    DRAG = { el: el, row: row, grid: grid, id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, ox: r.left + grid.clientLeft, oy: r.top + grid.clientTop, gx: ev.clientX - (r.left + grid.clientLeft) - b.col * CELLPX, gy: ev.clientY - (r.top + grid.clientTop) - b.row * CELLPX,
+      from: { col: b.col, row: b.row, rot: gRot(el, row) }, base: gBase(el, row), rot: gRot(el, row), started: false, valid: false, col: b.col, row: b.row, prev: null };
+  });
+  document.addEventListener('pointermove', function (ev) {
+    var d = DRAG; if (!d || ev.pointerId !== d.id) return;
+    if (!d.started) {
+      if (Math.abs(ev.clientX - d.x0) < 4 && Math.abs(ev.clientY - d.y0) < 4) return;
+      if (d.el.classList.contains('unk')) { DRAG = null; askModSize(d.el.dataset.path).then(function (sz) { if (sz) layoutGrids(); }); return; }   // modded item: its size must be entered first
+      if (d.grid.dataset.est === '1') { DRAG = null; toast('This container\'s size is unknown (modded furniture), so items in it cannot be moved.'); return; }
+      d.started = true; d.el.classList.add('drag'); d.prev = document.createElement('div'); d.grid.appendChild(d.prev);
+      try { d.el.setPointerCapture(d.id); } catch (e) { /* not needed */ }
+    }
+    var left = ev.clientX - d.ox - d.gx, top = ev.clientY - d.oy - d.gy;
+    d.el.style.left = left + 'px'; d.el.style.top = top + 'px';
+    d.col = Math.round(left / CELLPX); d.row = Math.round(top / CELLPX);
+    gDragUpdate(d);
+  });
+  document.addEventListener('pointerup', function (ev) { if (DRAG && ev.pointerId === DRAG.id) gDragEnd(true); });
+  document.addEventListener('pointercancel', function (ev) { if (DRAG && ev.pointerId === DRAG.id) gDragEnd(false); });
+  document.addEventListener('keydown', function (ev) {
+    var t = ev.target; if (t && (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+    var key = String(ev.key || '').toLowerCase();
+    if (DRAG && DRAG.started) {
+      if (key === 'escape') { gDragEnd(false); ev.preventDefault(); }
+      else if (key === 'r') {   // turn the item in your hand; it stays under the pointer's cell
+        if (DRAG.base[0] === DRAG.base[1]) { toast('This item is square, so there is nothing to turn.'); ev.preventDefault(); return; }
+        DRAG.rot = !DRAG.rot; var w = DRAG.rot ? DRAG.base[1] : DRAG.base[0], h = DRAG.rot ? DRAG.base[0] : DRAG.base[1];
+        placeItem(DRAG.el, DRAG.col, DRAG.row, DRAG.base, DRAG.rot); DRAG.el.style.left = DRAG.col * CELLPX + 'px'; DRAG.el.style.top = DRAG.row * CELLPX + 'px';
+        gDragUpdate(DRAG); ev.preventDefault();
+      }
+      return;
+    }
+    if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && key === 'z') {
+      if (MOVES.some(function (m) { return m.el.isConnected; })) { gUndo(); ev.preventDefault(); }
+      return;
+    }
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    var step = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] }[key];
+    if (!step && key !== 'r') return;
+    var el = document.querySelector('#view > section.pg:not([hidden]) .cgrid:not(.eqgrid) .gi.sel'), row = el && gRow(el); if (!el || !gEditable(row)) return;
+    if (el.classList.contains('unk')) { toast('This modded item\'s size is unknown. Drag it once to enter its size first.'); ev.preventDefault(); return; }
+    var b = gBox(el), rot = gRot(el, row);
+    if (!step && b.w === b.h) { toast('This item is square, so there is nothing to turn.'); ev.preventDefault(); return; }
+    var ok = step ? gMove(el, b.col + step[0], b.row + step[1], rot) : gMove(el, b.col, b.row, !rot);
+    if (!ok) toast(step ? 'Blocked: the item cannot move that way.' : 'No room to turn it here.');
+    ev.preventDefault();
+  });
   // the "add an item" bar above a grid (shelter containers and the carried inventory)
   function addBarHtml(file, cid, W, H, cname) {
     return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><span class="tag man" title="Adding items worked in testing, but it needs more testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
@@ -662,7 +788,7 @@
     if (SS.src !== 'live' && !l.some(function (m) { return m.id === SS.src; })) SS.src = 'live';
     var dir = SS.src === 'live' ? saveDir : j(j(bakDir, SS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.shelter ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Drag items inside their container to move them (R turns the item, arrow keys nudge the selected one, Ctrl+Z undoes). Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.shelter ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#ssrc').value = SS.src; return; }
     var shelters = [];
     try {
@@ -744,7 +870,7 @@
     var gridEl = box.querySelector('.cgrid');
     spots.forEach(function (slot, i) {
       var aid = 'a' + (++AID), amount = amounts[i];
-      if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
+      if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.dataset.path = path; ne.dataset.name = nm; ne.dataset.gx = slot.col * CELL; ne.dataset.gy = slot.row * CELL; ne.dataset.rot = slot.rot ? '1' : '0'; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
       placeRow(tb, '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-cat="' + esc(cat) + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
     });
     bar.querySelector('.aitem').value = ''; bar.querySelector('.aqty').value = '';
@@ -803,7 +929,7 @@
   // one new item: its grid box and its table row (same markup as addToContainer)
   function addNewRow(bar, tb, gridEl, path, def, slot, amount) {
     var aid = 'a' + (++AID), cond = def.showCondition ? 100 : 0, nm = Tres.itemName(path), cat = catOf(path);
-    if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
+    if (gridEl) { var ne = document.createElement('div'); ne.className = 'gi new'; ne.dataset.aid = aid; ne.dataset.path = path; ne.dataset.name = nm; ne.dataset.gx = slot.col * CELL; ne.dataset.gy = slot.row * CELL; ne.dataset.rot = slot.rot ? '1' : '0'; ne.title = nm; ne.innerHTML = '<img data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat); placeItem(ne, slot.col, slot.row, def.size, slot.rot); gridEl.appendChild(ne); }
     placeRow(tb, '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-cat="' + esc(cat) + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
   }
   function collectAdds(sc) {
@@ -826,7 +952,8 @@
       var e = { file: d.file, sid: d.sid, name: d.name };
       if (c && c.value !== d.ci) { var cv = parseInt(c.value, 10); if (isNaN(cv) || cv < 0 || cv > 100) throw new Error(d.name + ': condition must be 0 to 100'); e.cond = cv; e.condFrom = d.ci; }
       if (a && a.value !== d.ai) { var av = parseInt(a.value, 10); var amax = +a.max > 0 ? +a.max : Infinity; var amin = d.wp ? 0 : 1; if (isNaN(av) || av < amin || av > amax) throw new Error(d.name + ': quantity must be ' + amin + (amax < Infinity ? ' to ' + amax : ' or more')); e.amt = av; e.amtFrom = d.ai; }
-      if (e.cond !== undefined || e.amt !== undefined) out.push(e);
+      if (d.ogx !== undefined && (d.gx !== d.ogx || d.gy !== d.ogy || d.rot !== d.orot)) { e.gx = +d.gx; e.gy = +d.gy; e.rot = d.rot === '1'; e.fromGx = +d.ogx; e.fromGy = +d.ogy; e.fromRot = d.orot === '1'; }
+      if (e.cond !== undefined || e.amt !== undefined || e.gx !== undefined) out.push(e);
     });
     return out;
   }
@@ -926,6 +1053,10 @@
         var b = t.subById(e.sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
         if (e.cond !== undefined) t.set(b, 'condition', numLike(t.get(b, 'condition'), e.cond));
         if (e.amt !== undefined) t.set(b, 'amount', numLike(t.get(b, 'amount'), e.amt));
+        if (e.gx !== undefined) {
+          if (t.get(b, 'gridPosition') === undefined || t.get(b, 'gridRotated') === undefined) throw new Error(e.name + ' has no grid position in ' + f + ', so it cannot be moved');
+          t.set(b, 'gridPosition', 'Vector2(' + e.gx + ', ' + e.gy + ')'); t.set(b, 'gridRotated', e.rot ? 'true' : 'false');
+        }
         edited++;
       });
       byFile[f].filter(function (e) { return e.remove; }).forEach(function (e) {
@@ -1387,6 +1518,10 @@
     if (ci) bind('Condition (%)', ci); else if (cc || row.cells[2]) ro('Condition', (cc || row.cells[2]).textContent.trim() || 'n/a');
     if (qi) bind(row.dataset.wp === '1' ? 'Rounds loaded' : 'Quantity', qi); else if (qc || row.cells[3]) { var qt = (qc || row.cells[3]).textContent.trim(); if (qt) ro('Quantity', qt); }
     if (att) ro('Fitted', att);
+    if (row.dataset.ogx !== undefined && (row.dataset.gx !== row.dataset.ogx || row.dataset.gy !== row.dataset.ogy || row.dataset.rot !== row.dataset.orot)) {
+      ro('Moved from', 'column ' + (row.dataset.ogx / CELL + 1) + ', row ' + (row.dataset.ogy / CELL + 1) + (row.dataset.orot !== row.dataset.rot ? (row.dataset.orot === '1' ? ' (it was turned)' : ' (it was not turned)') : ''));
+      var ub = document.createElement('button'); ub.textContent = 'Undo this move'; ub.addEventListener('click', function () { gUndoItem(row); }); box.appendChild(ub);
+    }
     if (/^res:\/\/Items\//i.test(path) && gameDir) {
       var rrow = document.createElement('div'), vrow = document.createElement('div'); rrow.className = vrow.className = 'ir'; box.appendChild(rrow); box.appendChild(vrow);
       itemInfo(path).then(function (d) {
@@ -1422,13 +1557,14 @@
     return el;
   }
   function showPage(name) { pageEl(name); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.hidden = e.id !== 'pg-' + name; }); }
-  function dropPages() { document.querySelectorAll('#view > section.pg').forEach(function (e) { e.remove(); }); }
+  function dropPages() { MOVES.length = 0; document.querySelectorAll('#view > section.pg').forEach(function (e) { e.remove(); }); }
   function resetAllPages() { IS.edit = false; SS.edit = false; TS.edit = false; dropPages(); }
   // one working source (the live save or a snapshot) for all editors, so their changes can go into one edited copy
   function setSource(v) { IS.src = SS.src = TS.src = ES.src = v; resetAllPages(); return render(); }
   function srcDir() { return IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data'); }
   function updPending() {
     var bar = $('#pbar'); if (!bar) return;
+    var ubn = $('#pundo'); if (ubn) ubn.hidden = !MOVES.some(function (m) { return m.el.isConnected; });
     var n = pendingChanges(); bar.hidden = n === 0; $('#pcount').textContent = n + ' pending change' + (n === 1 ? '' : 's');
   }
   var pTimer = 0;
@@ -1514,6 +1650,7 @@
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; if (IS.src === id) { IS.src = SS.src = TS.src = ES.src = 'live'; resetAllPages(); } }
       else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
+      else if (act === 'undo-move') { gUndo(); return; }
       else if (act === 'ed-reset') {
         var rbx = b.closest('[data-bx]'); if (!rbx) return;
         rbx.querySelectorAll('[data-k]').forEach(function (el) { if (el.type === 'checkbox') el.checked = el.dataset.init === 'true'; else el.value = el.dataset.init; el.dispatchEvent(new window.Event('input', { bubbles: true })); });
@@ -1648,7 +1785,7 @@
       await fs.mkdir(bakDir, { recursive: true });
       await startWatch();
     } catch (e) { toast('Startup error: ' + e); }
-    document.body.insertAdjacentHTML('beforeend', '<div id="pbar" hidden><span id="pcount"></span><button data-act="batch-create" class="pri">Create edited copy</button><button data-act="batch-discard">Discard all</button></div><datalist id="itemlist"></datalist>');
+    document.body.insertAdjacentHTML('beforeend', '<div id="pbar" hidden><span id="pcount"></span><button data-act="undo-move" id="pundo" hidden>Undo move</button><button data-act="batch-create" class="pri">Create edited copy</button><button data-act="batch-discard">Discard all</button></div><datalist id="itemlist"></datalist>');
     ['input', 'change', 'click'].forEach(function (evn) { document.addEventListener(evn, schedPending); });
     document.addEventListener('change', function () { setTimeout(refreshInsp, 0); });
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') document.querySelectorAll('tr.wrow:not([hidden])').forEach(function (w) { w.hidden = true; }); });

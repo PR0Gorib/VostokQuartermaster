@@ -195,3 +195,9 @@ section.pg[hidden]{display:none}
 pre.dg:empty{display:none}
 .tag.exp{border-color:#d9a441;color:#d9a441;text-transform:none;letter-spacing:0;font-size:11px}
 .chip.nm{cursor:default}.chip.nm:hover{border-color:var(--line)}
+/* ---- moving items on a grid ---- */
+.cgrid{user-select:none;-webkit-user-select:none}
+.gi.moved{border-color:var(--ok)}
+.gi.drag{z-index:20;opacity:.85;cursor:grabbing;box-shadow:0 4px 14px #000a}
+.gdrop{position:absolute;box-sizing:border-box;pointer-events:none;border:2px solid;z-index:15}
+.gdrop.ok{border-color:var(--ok);background:#7fa36b33}.gdrop.bad{border-color:var(--rust);background:#c24a2633}

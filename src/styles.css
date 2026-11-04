@@ -201,3 +201,16 @@ pre.dg:empty{display:none}
 .gi.drag{z-index:20;opacity:.85;cursor:grabbing;box-shadow:0 4px 14px #000a}
 .gdrop{position:absolute;box-sizing:border-box;pointer-events:none;border:2px solid;z-index:15}
 .gdrop.ok{border-color:var(--ok);background:#7fa36b33}.gdrop.bad{border-color:var(--rust);background:#c24a2633}
+.gi img,.eqs img{-webkit-user-drag:none;user-drag:none;pointer-events:none}
+/* ---- moving items between containers: the ghost under the pointer, the item in hand ---- */
+.gi.lift,.gi.held{opacity:.35}.gi.held{outline:2px dashed var(--mut);outline-offset:-2px}
+.gi.ghost{position:fixed;z-index:100;pointer-events:none;opacity:.92;box-shadow:0 6px 18px #000b;border-color:var(--text)}
+.gdrop[hidden]{display:none}
+tr.away td{opacity:.45;text-decoration:line-through}
+.hand{border:1px solid var(--rust);border-radius:6px;padding:8px 10px;margin-bottom:10px;background:#241c18}
+.hand .hh{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#f0a78f;margin-bottom:6px}
+.hand .hrow{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.hand .hbox{flex:none;width:64px;height:64px;display:flex;align-items:center;justify-content:center;background:#0e1415;border:1px solid var(--line);border-radius:6px;cursor:grab;touch-action:none;user-select:none}
+.hand .hbox img{max-width:56px;max-height:56px;object-fit:contain;pointer-events:none;-webkit-user-drag:none}
+.hand .hbox:hover{border-color:var(--text)}.hand button{width:100%}
+.hand.float{position:fixed;right:24px;bottom:72px;width:300px;z-index:60;box-shadow:0 8px 24px #000a}

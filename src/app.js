@@ -310,7 +310,7 @@
     ['Head', 0, 6, 1, 1], ['Torso', 1, 6, 1, 1], ['Legs', 2, 6, 1, 1], ['Belt', 3, 6, 1, 1], ['Feet', 4, 6, 1, 1], ['Hands', 5, 6, 1, 1],
     ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
   function eqBarHtml() {
-    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><span class="tag man" title="New and still being tested. Keep your original snapshot and test the edited copy.">Experimental</span> <select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
+    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span> <select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
       '<select class="eqitem" disabled><option value="">Choose a slot first</option></select><button data-act="eq-add">Equip</button><div class="eqatt" hidden></div><span class="meta amsg"></span></div>';
   }
   // base-game items allowed in each equipment slot, from the item definitions (built once)
@@ -470,7 +470,7 @@
   var CELL = 64;  // grid positions in the save are cell index x 64
   // Items from mods are not in the game files, so their grid size is unknown. The user tells us once; it is remembered.
   var MODSZ = (function () { try { return JSON.parse(localStorage.getItem('modsizes') || '{}') || {}; } catch (e) { return {}; } })();
-  var LV = { inventory: localStorage.getItem('lv_inventory') === '1', shelter: localStorage.getItem('lv_shelter') !== '0' };   // show the item lists (with their edit fields) next to the grids; the shelter has too many items for the grid-only view
+  var LV = { inventory: localStorage.getItem('lv_inventory') === '1', shelter: localStorage.getItem('lv_shelter') === '1' };   // show the item lists (with their edit fields) next to the grids; the shelter has too many items for the grid-only view
   var WARN = localStorage.getItem('warnunsaved') !== '0', noWarnOnce = false;   // warn about changes that are not in an edited copy yet
   var XMAGS = localStorage.getItem('xmags') === '1';   // offer magazines of other weapons with the same ammo (needs a cross-compatibility mod)
   function saveModSizes() { localStorage.setItem('modsizes', JSON.stringify(MODSZ)); }
@@ -498,7 +498,7 @@
       if (ie.some(function (e) { return e.file !== 'Character.tres'; })) parts.push('shelter');
       var shown = ie.filter(function (e) { return !(e.remove && e.movedTo); }), lines = shown.slice(0, 14).map(invLine); if (shown.length > 14) lines.push('...and ' + (shown.length - 14) + ' more');
       var sum = [plan.added - mvn > 0 ? (plan.added - mvn) + ' added' : '', mvn ? mvn + ' moved' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed - mvn > 0 ? (plan.removed - mvn) + ' removed (including anything stored inside them)' : ''].filter(Boolean).join(', ');
-      var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\nAdding items is experimental. It has worked in testing, but keep your original snapshot and test the copy before relying on it.' : '');
+      var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\nAdding and moving items is new. Check the copy in game before you rely on it.' : '');
       blocks.push('Inventory and shelters\n' + lines.join('\n') + '\n' + sum + '.' + eqWarn);
     }
     if (ce.length) {
@@ -857,7 +857,7 @@
 
   // the "add an item" bar above a grid (shelter containers and the carried inventory)
   function addBarHtml(file, cid, W, H, cname) {
-    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><span class="tag man" title="Adding items worked in testing, but it needs more testing. Always test the edited copy and keep your original.">Experimental</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
+    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
   }
   function shelterPageHtml(name, t, m, ext) {
     var seen = {};
@@ -1101,7 +1101,7 @@
         }).join('') + '</select></div>';
     }).join('');
     if (!boxes && !isW) return '<tr class="wrow"><td colspan="5"><div class="wmodal"><button class="wclose" data-act="wp-close" title="Close (Esc)">&times;</button><div class="meta">Nothing to choose for ' + esc(Tres.itemName(tr.dataset.path)) + ' in the game data.</div></div></td></tr>';
-    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="wmodal"><button class="wclose" data-act="wp-close" title="Close (Esc)">&times;</button><h4>Edit build &mdash; ' + esc(Tres.itemName(tr.dataset.path)) + '</h4><div class="meta"><span class="tag man" title="New and still being tested. Keep your original snapshot and test the edited copy.">Experimental</span> ' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
+    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="wmodal"><button class="wclose" data-act="wp-close" title="Close (Esc)">&times;</button><h4>Edit build &mdash; ' + esc(Tres.itemName(tr.dataset.path)) + '</h4><div class="meta"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span> ' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
       '<div class="wbuild"><div class="wcenter"><img data-ic="' + esc(tr.dataset.path) + '" alt="" hidden><span class="wcn">' + esc(Tres.itemName(tr.dataset.path)) + '</span></div>' + boxes + '</div>' +
       (isW ? '<div class="fgrid"><label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label></div>' : '') +
       '<div class="meta">Click a box to choose a part. ' + (isW ? 'Rounds loaded: use the Qty box in the item row (it follows the magazine size). ' : '') + 'Choices are what the game lists as compatible' + (isW && XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></div></td></tr>';
@@ -1506,7 +1506,7 @@
       var rest = CONDS.filter(function (x) { return has(x) && !shown[x[0]] && ccat.indexOf(x) === -1; });
       if (rest.length) cg += '<h3>Other conditions</h3><div class="chips">' + rest.map(function (x) { return chkHtml(x, ''); }).join('') + '</div>';
       html += cg;
-      if (cat.length || ccat.length) html += '<h3>Cat <span class="tag exp">Experimental</span></h3><p class="meta">Cat editing needs more testing. The cat has to be found in game first, so these changes are untested and may do nothing.</p>' + (cat.length ? '<div class="vgrid">' + cat.map(meterHtml).join('') + '</div>' : '') + (ccat.length ? '<div class="chips">' + ccat.map(function (x) { return chkHtml(x, 'neu'); }).join('') + '</div>' : '');
+      if (cat.length || ccat.length) html += '<h3>Cat <span class="tag exp">Feedback needed</span></h3><p class="meta">Cat editing has not been confirmed in game yet: the cat has to be found first, so these changes may do nothing. Tell us how it goes.</p>' + (cat.length ? '<div class="vgrid">' + cat.map(meterHtml).join('') + '</div>' : '') + (ccat.length ? '<div class="chips">' + ccat.map(function (x) { return chkHtml(x, 'neu'); }).join('') + '</div>' : '');
     } else html += '<div class="empty">No Character.tres in this save.</div>';
     if (wo) {
       var sel = function (k, label, pairs, cur) {

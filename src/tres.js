@@ -194,6 +194,18 @@
       if (!sb) continue;
       this.blockRefs(sb, 'SubResource').forEach(function (cid) { if (!seen[cid]) { seen[cid] = true; doomed.push(cid); queue.push(cid); } });
     }
+    // an item block can be shared (two loose items pointing at the same slot data): keep anything that a block outside the removal still
+    // refers to, and whatever only that kept block leads to
+    var inD = {}; doomed.forEach(function (d) { inD[d] = true; });
+    for (var changed = true; changed;) {
+      changed = false;
+      this.blocks.forEach(function (bk) {
+        if (bk.kind !== 'sub_resource' && bk.kind !== 'resource') return;
+        if (bk.kind === 'sub_resource' && inD[bk.attrs.id]) return;
+        self.blockRefs(bk, 'SubResource').forEach(function (cid) { if (cid !== subId && inD[cid]) { inD[cid] = false; changed = true; } });
+      });
+    }
+    doomed = doomed.filter(function (d) { return inD[d]; });
     doomed.forEach(function (sid) {
       removeFromArrays(self, sid);
       var blk = self.subById(sid);

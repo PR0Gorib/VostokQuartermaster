@@ -299,7 +299,7 @@
       var s = g[k].s, n = g[k].n, kids = g[k].ids;
       var ed = EDIT_ON && s.sid;
       return '<tr' + (s.cat ? ' data-cat="' + esc(s.cat) + '"' : '') + (s.path ? ' data-path="' + esc(s.path) + '"' : '') + (s.attp && s.attp.length ? ' data-nested="' + esc(s.attp.join('|')) + '"' : '') + (s.slot ? ' data-slot="' + esc(s.slot) + '"' : '') + (s.sid ? ' data-ks="' + esc(kids.join(' ')) + '"' : '') + (s.cid ? ' data-cid="' + esc(s.cid) + '" data-gx="' + s.gx + '" data-gy="' + s.gy + '" data-rot="' + (s.rot ? 1 : 0) + '"' : '') + (ed ? ' class="er" data-file="' + esc(s.file) + '" data-rid="' + esc(s.rid) + '" data-sid="' + esc(s.sid) + '" data-name="' + esc(s.name) + '" data-ci="' + s.cond + '" data-ai="' + s.qty + '"' + (s.slot ? ' data-eq="1"' : '') + ' data-chi="' + (s.chamber ? 1 : 0) + '"' : '') + ' data-q="' + esc((s.name + ' ' + s.cat + ' ' + s.att.join(' ') + ' ' + s.slot).toLowerCase()) + '"><td>' + '<span class="ib">' + (/^res:\/\/Items\//i.test(s.path || '') ? '<img class="ico" data-ic="' + esc(s.path) + '" alt="" hidden>' : '') + glyph(s.cat) + '</span>' + (s.slot ? '<span class="meta">' + esc(s.slot) + '</span> ' : '') + esc(s.name) + (n > 1 ? ' &times;' + n : '') +
-        (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label></td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
+        (s.att.length || s.stored ? '<div class="meta">' + esc(s.att.join(', ')) + (s.stored ? (s.att.length ? ' &middot; ' : '') + s.stored + ' stored inside' : '') + '</div>' : '') + '</td><td class="meta">' + esc(s.cat) + '</td>' + (ed ? '<td class="cc">' + (s.hasC ? '<input type="number" data-w="c" min="0" max="100" step="1" value="' + s.cond + '">' : '') + '</td><td class="qc">' + (s.hasA ? '<input type="number" data-w="a" min="1" step="1" value="' + s.qty + '">' : '') + '</td><td><label><input type="checkbox" data-w="r"> Remove</label>' + (!s.cid && !s.slot ? ' <button type="button" data-act="row-pick" title="Move this item into a container">Pick up</button>' : '') + '</td>' : '<td class="cc">' + s.cond + '%</td><td class="qc">' + (s.qty || '') + '</td>') + '</tr>';
     }).join('');
   }
   var itemTable = function (rows, force) { return rows || force ? '<table class="itm"><thead><tr><th>Item</th><th>Category</th><th>Cond.</th><th>Qty</th>' + (EDIT_ON ? '<th></th>' : '') + '</tr></thead><tbody>' + rows + '</tbody></table>' : '<p class="meta">Nothing here.</p>'; };
@@ -704,7 +704,7 @@
     return null;
   }
   function gGhost(d) {
-    if (!d.ghost) { d.ghost = document.createElement('div'); d.ghost.className = 'gi ghost'; d.ghost.innerHTML = d.el.innerHTML; document.body.appendChild(d.ghost); }
+    if (!d.ghost) { d.ghost = document.createElement('div'); d.ghost.className = 'gi ghost'; d.ghost.innerHTML = (d.el || document.querySelector('.hand .hbox')).innerHTML; document.body.appendChild(d.ghost); }
     placeItem(d.ghost, 0, 0, d.base, d.rot);
     var w = parseFloat(d.ghost.style.width), h = parseFloat(d.ghost.style.height);
     d.gx = Math.min(d.gx, w - 2); d.gy = Math.min(d.gy, h - 2);
@@ -727,15 +727,16 @@
     var d = DRAG; if (!d) return; DRAG = null;
     if (d.prev) d.prev.remove();
     if (d.ghost) d.ghost.remove();
-    d.el.classList.remove('lift');
+    if (d.el) d.el.classList.remove('lift');
     if (!d.started || !commit) return;
     if (!d.tgt) return;   // dropped on nothing: just put it down again
     if (!d.valid) { toast(d.tgt !== d.srcGrid && !gBar(d.tgt) ? 'Turn on Edit mode on that page to drop items there.' : 'It does not fit there.'); return; }
-    if (d.tgt === d.srcGrid) { if (gMove(d.el, d.col, d.row, d.rot) && d.hand) { if (HELD) HELD.el.classList.remove('held'); HELD = null; renderHand(); } return; }
-    xMove(d.el, d.row0, d.tgt, d.col, d.row, d.rot).then(function (ok) { if (ok && d.hand) { if (HELD) HELD.el.classList.remove('held'); HELD = null; renderHand(); } });
+    if (!d.el) { xMove(null, d.row0, d.tgt, d.col, d.row, d.rot, d.base).then(function (ok) { if (ok) releaseHand(); }); return; }   // a loose item
+    if (d.tgt === d.srcGrid) { if (gMove(d.el, d.col, d.row, d.rot) && d.hand) releaseHand(); return; }
+    xMove(d.el, d.row0, d.tgt, d.col, d.row, d.rot).then(function (ok) { if (ok && d.hand) releaseHand(); });
   }
   function gStartDrag(ev, el, row, hand) {
-    var grid = el.closest('.cgrid'), r = grid.getBoundingClientRect(), b = gBox(el), base = gBase(el, row), rot = gRot(el, row);
+    var grid = el && el.closest('.cgrid'), r = grid && grid.getBoundingClientRect(), b = el && gBox(el), base = el ? gBase(el, row) : HELD.base, rot = el ? gRot(el, row) : false;
     DRAG = { cap: ev.target, el: el, row0: row, srcGrid: grid, hand: !!hand, id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, base: base, rot: rot, started: false, valid: false, col: 0, row: 0, tgt: null, prev: null, ghost: null, lx: ev.clientX, ly: ev.clientY,
       gx: hand ? base[0] * CELLPX / 2 : ev.clientX - (r.left + grid.clientLeft) - b.col * CELLPX, gy: hand ? base[1] * CELLPX / 2 : ev.clientY - (r.top + grid.clientTop) - b.row * CELLPX };
   }
@@ -744,7 +745,7 @@
   document.addEventListener('pointerdown', function (ev) {
     if (ev.button !== 0 || DRAG || !ev.target.closest) return;
     var hb = ev.target.closest('.hbox');
-    if (hb && HELD && HELD.el.isConnected) { gStartDrag(ev, HELD.el, HELD.row, true); return; }
+    if (hb && HELD && (HELD.el || HELD.row).isConnected) { gStartDrag(ev, HELD.el, HELD.row, true); return; }
     var el = ev.target.closest('#view .cgrid:not(.eqgrid) .gi'); if (!el || el.hidden) return;
     var row = gRow(el); if (!gEditable(row)) return;
     gStartDrag(ev, el, row, false);
@@ -753,9 +754,9 @@
     var d = DRAG; if (!d || ev.pointerId !== d.id) return;
     if (!d.started) {
       if (Math.abs(ev.clientX - d.x0) < 4 && Math.abs(ev.clientY - d.y0) < 4) return;
-      if (d.el.classList.contains('unk')) { DRAG = null; askModSize(d.el.dataset.path).then(function (sz) { if (sz) layoutGrids(); }); return; }   // modded item: its size must be entered first
+      if (d.el && d.el.classList.contains('unk')) { DRAG = null; askModSize(d.el.dataset.path).then(function (sz) { if (sz) layoutGrids(); }); return; }   // modded item: its size must be entered first
       if (!d.hand && d.srcGrid.dataset.est === '1') { DRAG = null; toast('This container\'s size is unknown (modded furniture), so items in it cannot be moved.'); return; }
-      d.started = true; d.el.classList.add('lift'); d.prev = document.createElement('div'); d.prev.hidden = true; gGhost(d);
+      d.started = true; if (d.el) d.el.classList.add('lift'); d.prev = document.createElement('div'); d.prev.hidden = true; gGhost(d);
       try { (d.cap || d.el).setPointerCapture(d.id); } catch (e) { /* not needed */ }
     }
     gDragPos(d, ev.clientX, ev.clientY);
@@ -797,11 +798,11 @@
     var t = await srcTres(row.dataset.file), b = t.subById(row.dataset.sid);
     return !!b && ids(inner(t.get(b, 'storage')), 'SubResource').length > 0;
   }
-  async function xMove(el, row, grid, col, rw, rot) {
-    var bar = gBar(grid), srcGrid = el.closest('.cgrid'), srcBar = srcGrid && gBar(srcGrid), tb = bar && bar.parentNode.querySelector('table.itm tbody');
+  async function xMove(el, row, grid, col, rw, rot, base0) {
+    var bar = gBar(grid), srcGrid = el && el.closest('.cgrid'), srcBar = el ? (srcGrid && gBar(srcGrid)) : { dataset: { cname: 'Loose items (' + String(row.dataset.file || '').replace(/\.tres$/i, '') + ')' } }, tb = bar && bar.parentNode.querySelector('table.itm tbody');
     if (!bar || !tb || !srcBar) { toast('Turn on Edit mode on both pages to move items between containers.'); return false; }
     if (!row.classList.contains('er')) { toast('This item is not saved yet. Move it inside its container, or remove it and add it again.'); return false; }
-    var base = gBase(el, row), w = rot ? base[1] : base[0], h = rot ? base[0] : base[1];
+    var base = base0 || gBase(el, row), w = rot ? base[1] : base[0], h = rot ? base[0] : base[1];
     if (!gFits(grid, null, col, rw, w, h)) { toast('It does not fit there.'); return false; }
     try { if (await holdsItems(row)) { toast('This item holds other items, so it cannot be moved yet.'); return false; } } catch (e) { toast('Could not read the item from the save: ' + niceErr(e)); return false; }
     var c = row.querySelector('[data-w="c"]'), a = row.querySelector('[data-w="a"]');
@@ -811,35 +812,45 @@
     nr.dataset.fromFile = row.dataset.file; nr.dataset.fromSid = row.dataset.sid; nr.dataset.fromName = srcBar.dataset.cname;
     nr.dataset.cond = c && c.value !== row.dataset.ci ? c.value : 'x'; nr.dataset.amt = a && a.value !== row.dataset.ai ? a.value : 'x';   // 'x' = take it from the saved item (only a value you typed in is used)
     var tg = nr.querySelector('.tag.man'); if (tg) tg.textContent = 'MOVED';
-    row.dataset.away = nr.dataset.aid; el.dataset.away = nr.dataset.aid; el.hidden = true; row.classList.add('away'); el.classList.remove('sel');
-    MOVES.push({ el: el, x: { row: row, newRow: nr, newEl: ne } });
+    row.dataset.away = nr.dataset.aid; row.classList.add('away'); row.classList.remove('held');
+    if (el) { el.dataset.away = nr.dataset.aid; el.hidden = true; el.classList.remove('sel'); }
+    MOVES.push({ el: el || row, x: { row: row, newRow: nr, newEl: ne } });
     schedPending(); selectItem(ne, nr); return true;
   }
   // bring a moved item back to where it was; refused if something else sits there now
   function xUndo(x, el) {
-    var row = x.row, grid = el.closest('.cgrid'), base = gBase(el, row), rot = gRot(el, row), col = Math.round(+row.dataset.gx / CELL), rw = Math.round(+row.dataset.gy / CELL);
-    if (!(el.dataset.wasbad === '1') && !gFits(grid, el, col, rw, rot ? base[1] : base[0], rot ? base[0] : base[1])) { toast('Cannot undo: something else is on the old spot now.'); return false; }
+    var row = x.row, loose = el.tagName === 'TR', grid = !loose && el.closest('.cgrid'), base = !loose && gBase(el, row), rot = !loose && gRot(el, row), col = Math.round(+row.dataset.gx / CELL), rw = Math.round(+row.dataset.gy / CELL);
+    if (!loose && !(el.dataset.wasbad === '1') && !gFits(grid, el, col, rw, rot ? base[1] : base[0], rot ? base[0] : base[1])) { toast('Cannot undo: something else is on the old spot now.'); return false; }
     x.newEl.remove(); x.newRow.remove();
-    delete row.dataset.away; delete el.dataset.away; el.hidden = false; row.classList.remove('away');
+    delete row.dataset.away; row.classList.remove('away');
+    if (!loose) { delete el.dataset.away; el.hidden = false; }
     schedPending(); refreshInsp(); return true;
   }
   function xUndoRow(newRow) {
     var m = MOVES.filter(function (q) { return q.x && q.x.newRow === newRow; })[0], row = document.querySelector('tr.er[data-away="' + newRow.dataset.aid + '"]'), el = document.querySelector('.gi[data-away="' + newRow.dataset.aid + '"]');
-    if (!row || !el) { newRow.remove(); schedPending(); return; }
-    if (xUndo(m ? m.x : { row: row, newRow: newRow, newEl: document.querySelector('.gi.new[data-aid="' + newRow.dataset.aid + '"]') || document.createElement('i') }, el)) MOVES = MOVES.filter(function (q) { return q !== m; });
+    if (!row) { newRow.remove(); schedPending(); return; }
+    if (xUndo(m ? m.x : { row: row, newRow: newRow, newEl: document.querySelector('.gi.new[data-aid="' + newRow.dataset.aid + '"]') || document.createElement('i') }, el || row)) MOVES = MOVES.filter(function (q) { return q !== m; });
   }
+  // the size a loose item would take in a grid (base game: from the game files; modded: the size you entered, asked for if missing)
+  async function looseSize(path) {
+    if (/^res:\/\/Items\//i.test(path)) { try { await iconPack(); var d = await Pck.itemDef(IC.pack, path); if (d && d.ok && d.size) return d.size; } catch (e) { /* ask below */ } }
+    return MODSZ[path] || await askModSize(path);
+  }
+  function releaseHand() { if (HELD) { if (HELD.el) HELD.el.classList.remove('held'); HELD.row.classList.remove('held'); } HELD = null; renderHand(); }
   async function holdItem(row) {
-    if (HELD && HELD.el.isConnected) { toast('You are already holding an item. Put it back first.'); return; }
-    var el = document.querySelector('#view .gi[data-k="' + String(row.dataset.ks || '').split(' ')[0] + '"]');
-    if (!el || el.hidden || el.classList.contains('unk')) { toast('This item cannot be picked up (its size is unknown).'); return; }
+    if (HELD && (HELD.el || HELD.row).isConnected) { toast('You are already holding an item. Put it back first.'); return; }
+    var loose = row.dataset.cid === undefined, base = null;
+    var el = loose ? null : document.querySelector('#view .gi[data-k="' + String(row.dataset.ks || '').split(' ')[0] + '"]');
+    if (!loose && (!el || el.hidden || el.classList.contains('unk'))) { toast('This item cannot be picked up (its size is unknown).'); return; }
     try { if (await holdsItems(row)) { toast('This item holds other items, so it cannot be moved yet.'); return; } } catch (e) { toast('Could not read the item from the save: ' + niceErr(e)); return; }
-    HELD = { row: row, el: el, path: row.dataset.path || '', name: rowName(row), cat: row.dataset.cat || '' };
-    el.classList.add('held'); renderHand(); refreshInsp();
-    toast('In your hand: ' + HELD.name + '. Open the page with the container you want and drag it from the inspector.');
+    if (loose) { base = await looseSize(row.dataset.path || ''); if (!base) { toast('Its size in a grid is needed to place it, so it stays where it is.'); return; } }
+    HELD = { row: row, el: el, loose: loose, base: base, path: row.dataset.path || '', name: rowName(row), cat: row.dataset.cat || '' };
+    (el || row).classList.add('held'); renderHand(); refreshInsp();
+    toast('In your hand: ' + HELD.name + '. Open the page with the container you want and drag the card\'s icon onto it.');
   }
   // the "in hand" card sits at the top of the inspector; in list view there is no inspector, so it floats at the bottom right instead
   function renderHand() {
-    if (HELD && !HELD.el.isConnected) HELD = null;
+    if (HELD && !(HELD.el || HELD.row).isConnected) HELD = null;
     document.querySelectorAll('#view > section.pg').forEach(function (sec) {
       var insp = sec.querySelector('.insp'), h = sec.querySelector('.hand');
       if (!HELD || !insp) { if (h) h.remove(); return; }
@@ -1770,7 +1781,8 @@
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; if (IS.src === id) { IS.src = SS.src = TS.src = ES.src = 'live'; resetAllPages(); } }
       else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
-      else if (act === 'hand-drop') { if (HELD) HELD.el.classList.remove('held'); HELD = null; renderHand(); refreshInsp(); return; }
+      else if (act === 'hand-drop') { releaseHand(); refreshInsp(); return; }
+      else if (act === 'row-pick') { holdItem(b.closest('tr')); return; }
       else if (act === 'undo-move') { gUndo(); return; }
       else if (act === 'ed-reset') {
         var rbx = b.closest('[data-bx]'); if (!rbx) return;

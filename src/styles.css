@@ -214,3 +214,4 @@ tr.away td{opacity:.45;text-decoration:line-through}
 .hand .hbox img{max-width:56px;max-height:56px;object-fit:contain;pointer-events:none;-webkit-user-drag:none}
 .hand .hbox:hover{border-color:var(--text)}.hand button{width:100%}
 .hand.float{position:fixed;right:24px;bottom:72px;width:300px;z-index:60;box-shadow:0 8px 24px #000a}
+tr.er.held td{background:#241c18;outline:1px dashed var(--mut);outline-offset:-1px}

@@ -151,14 +151,58 @@
       var txt = await fs.readTextFile(j(dir, e.name)), t = Tres.parse(txt);
       t.dependencies().forEach(function (d) {
         if (!d.mod) return;
-        var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, stored: 0, other: 0, files: {} });
-        if (d.type === 'Resource') { m.items += t.usesOf(d.id); try { m.stored += Tres.parse(txt).removeItemsUsing(d.id).children.length; } catch (_) { /* count only */ } } else m.other++;
+        var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, stored: 0, other: 0, files: {}, list: [] });
+        if (d.type === 'Resource') {
+          m.items += t.usesOf(d.id);
+          try { var det = modSlots(t, e.name, d.id); m.list = m.list.concat(det); m.stored += det.reduce(function (n, x) { return n + x.inside.length; }, 0); }
+          catch (_) { try { m.stored += Tres.parse(txt).removeItemsUsing(d.id).children.length; } catch (__) { /* count only */ } }
+        } else m.other++;
         m.files[e.name] = 1;
       });
     }
     return Object.keys(mods).sort().map(function (k) {
       var m = mods[k], n = normName(k); m.found = have.some(function (h) { return h === n || (n.length > 3 && h.indexOf(n) !== -1); }); return m;
     });
+  }
+  // where every slot of a save file sits: carried, equipped, on the floor, in a container, or inside another item
+  function slotWhere(t, file) {
+    var m = t.main(), ext = extMap(t), where = {}, shelter = file.replace(/\.tres$/i, '');
+    var nameOf = function (sid) { var b = t.subById(sid), im = b && /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''); return im && ext[im[1]] ? Tres.itemName(ext[im[1]]).replace(/ F$/, '') : 'an item'; };
+    var mark = function (sid, label, depth) {
+      where[sid] = label; var b = t.subById(sid); if (!b || depth > 6) return;
+      ids(t.get(b, 'storage') || '', 'SubResource').forEach(function (c) { mark(c, 'inside ' + nameOf(sid), depth + 1); });
+    };
+    ids(t.get(m, 'inventory') || '', 'SubResource').forEach(function (s) { mark(s, 'Carried items', 0); });
+    ids(t.get(m, 'equipment') || '', 'SubResource').forEach(function (s) { mark(s, 'Equipment', 0); });
+    ids(t.get(m, 'catalog') || '', 'SubResource').forEach(function (s) { mark(s, 'Furniture catalog (unlocked furniture)', 0); });
+    ids(t.get(m, 'items') || '', 'SubResource').forEach(function (s) { var b = t.subById(s), sd = b && ids(t.get(b, 'slotData') || '', 'SubResource')[0]; if (sd) mark(sd, 'Loose items in ' + shelter, 0); });
+    var fids = ids(t.get(m, 'furnitures') || '', 'SubResource'), cnt = {}, names = {}, idx = {};
+    fids.forEach(function (fid) { var fb = t.subById(fid); if (!fb) return; var nm = String(t.get(fb, 'name') || '').replace(/"/g, '') || nameOf(fid); names[fid] = nm; cnt[nm] = (cnt[nm] || 0) + 1; });
+    fids.forEach(function (fid) {
+      var nm = names[fid]; if (!nm) return; idx[nm] = (idx[nm] || 0) + 1;
+      var label = nm + (cnt[nm] > 1 ? ' #' + idx[nm] : ''), fb = t.subById(fid);
+      where[fid] = 'Furniture in ' + shelter;
+      ids(t.get(fb, 'storage') || '', 'SubResource').forEach(function (s) { mark(s, label + ' in ' + shelter, 0); });
+    });
+    return where;
+  }
+  // every item in a file that comes from one mod (ext = that mod's resource id), with where it is and what is stored inside it
+  function modSlots(t, file, extId) {
+    var where = slotWhere(t, file), ext = extMap(t), out = [];
+    t.blocks.forEach(function (b) {
+      if (b.kind !== 'sub_resource') return;
+      var im = /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''); if (!im || im[1] !== extId) return;
+      var inside = [], walk = function (sid, d) {
+        ids(t.get(t.subById(sid), 'storage') || '', 'SubResource').forEach(function (c) {
+          var cb = t.subById(c), cm = cb && /ExtResource\("([^"]+)"\)/.exec(t.get(cb, 'itemData') || '');
+          inside.push({ name: cm && ext[cm[1]] ? Tres.itemName(ext[cm[1]]).replace(/ F$/, '') : 'an item', path: cm && ext[cm[1]] ? ext[cm[1]] : '' });
+          if (d < 6) walk(c, d + 1);
+        });
+      };
+      walk(b.attrs.id, 0);
+      out.push({ file: file, name: Tres.itemName(ext[extId] || '').replace(/ F$/, ''), loc: where[b.attrs.id] || 'somewhere in ' + file, inside: inside });
+    });
+    return out;
   }
   async function snapFrom(src, tag) {
     var n = new Date(), id = await folderFor(tag, false, n);
@@ -194,12 +238,24 @@
     if (!(await fs.exists(srcDir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; return; }
     try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(niceErr(e)) + '<br><br><button data-act="pickgame" class="pri">Choose game folder again</button>' + (RS.src !== 'live' ? ' <button data-act="srclive">Use current save folder</button>' : '') + '</div>'; return; }
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
+    RS.mods = mods;
     var rows = mods.map(function (m) {
-      return '<label class="snap"><div><h4><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> ' + esc(m.name) + '<span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></h4>' +
-        '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + (m.stored ? ' (+' + m.stored + ' stored inside)' : '') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' mod data reference' + (m.other === 1 ? '' : 's') + ' (the mod&rsquo;s own data, not items)' : '') + '</div></div></label>';
+      var groups = {}, order = [], insideAll = [];
+      m.list.forEach(function (x) { var k = x.name + '|' + x.loc; if (!groups[k]) { groups[k] = { name: x.name, loc: x.loc, n: 0 }; order.push(k); } groups[k].n++; x.inside.forEach(function (c) { if (c.path) insideAll.push(c.path); }); });
+      order.sort(function (a, b) { return groups[a].loc < groups[b].loc ? -1 : groups[a].loc > groups[b].loc ? 1 : 0; });
+      var shown = order.slice(0, 40).map(function (k) { var g = groups[k]; return '<li><b>' + esc(g.name) + '</b>' + (g.n > 1 ? ' &times;' + g.n : '') + ' <span class="meta">&middot; ' + esc(g.loc) + '</span></li>'; }).join('');
+      var kinds = {}, kindOrder = []; insideAll.forEach(function (p) { if (!kinds[p]) { kinds[p] = 1; kindOrder.push(p); } });
+      var detail = order.length ? '<details class="mdet"><summary>Show what will be removed</summary><ul class="mlist">' + shown + (order.length > 40 ? '<li class="meta">...and ' + (order.length - 40) + ' more places</li>' : '') + '</ul>' +
+        (m.stored ? '<div class="minside"><div class="meta">Stored inside them, and deleted with them (' + m.stored + '):</div><div class="qrow">' + itemChips(insideAll.slice(0, 400).filter(function (p, i, a) { return kindOrder.indexOf(p) < 30; })) + (kindOrder.length > 30 ? '<span class="meta">...and ' + (kindOrder.length - 30) + ' more kinds</span>' : '') + '</div></div>' : '') + '</details>' : '';
+      return '<div class="mcard"><label class="mh"><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> <b>' + esc(m.name) + '</b><span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></label>' +
+        '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' mod data reference' + (m.other === 1 ? '' : 's') + ' (the mod&rsquo;s own data, not items)' : '') + '</div>' +
+        (m.stored ? '<div class="mwarn">Removing these also deletes <b>' + m.stored + ' item' + (m.stored === 1 ? '' : 's') + ' stored inside them</b>, such as things kept in this mod&rsquo;s furniture. Open the list to see them first.</div>' : '') + detail + '</div>';
     }).join('');
-    v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' +
+    var miss = mods.filter(function (m) { return !m.found; });
+    var note = mods.length ? '<p class="meta rsum">' + (miss.length ? miss.length + ' of ' + mods.length + ' mod' + (mods.length === 1 ? '' : 's') + ' not found in your mods folder (ticked below). ' : 'All mods were found in your mods folder. ') + 'Nothing is removed until you press Create cleaned copy.</p>' : '';
+    v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' + note +
       (rows || '<div class="empty">No items from mods were found in this save.</div>');
+    fillIcons();
     $('#rsrc').value = RS.src;
   }
 
@@ -741,6 +797,7 @@
       gx: hand ? base[0] * CELLPX / 2 : ev.clientX - (r.left + grid.clientLeft) - b.col * CELLPX, gy: hand ? base[1] * CELLPX / 2 : ev.clientY - (r.top + grid.clientTop) - b.row * CELLPX };
   }
   // the browser's own image dragging would grab the icon and cancel our drag (it only lets go on a double click), so switch it off on grids
+  document.addEventListener('click', function (ev) { var sm = ev.target.closest && ev.target.closest('.autog > summary'); if (sm) setTimeout(function () { localStorage.setItem('snap_auto_open', sm.parentNode.open ? '1' : '0'); }, 0); });
   document.addEventListener('dragstart', function (ev) { if (ev.target.closest && ev.target.closest('.cgrid, .hand')) ev.preventDefault(); });
   document.addEventListener('pointerdown', function (ev) {
     if (ev.button !== 0 || DRAG || !ev.target.closest) return;
@@ -1583,21 +1640,41 @@
   document.addEventListener('change', edSync);
 
   /* ---------- views ---------- */
+  // "22 min ago" for recent snapshots, the date for old ones (the exact time is in the tooltip)
+  function ago(iso) {
+    var s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000), d = new Date(iso);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.round(s / 60) + ' min ago';
+    if (s < 86400) { var h = Math.round(s / 3600); return h + (h === 1 ? ' hour ago' : ' hours ago'); }
+    if (s < 86400 * 2) return 'yesterday, ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    if (s < 86400 * 7) return Math.round(s / 86400) + ' days ago';
+    return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+  var SNF = localStorage.getItem('snf') || 'all';   // snapshot list filter: all / man / auto
   async function renderSnapshots() {
     var ok = await fs.exists(saveDir), v = pageEl('snapshots'), lw = ok ? await worldInfo(saveDir) : null;
     var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) + (lw.difficulty === '3' ? ' <span class="tag iron">Ironman</span>' : '') : '') + '</p>';
     if (!ok) { v.innerHTML = head + '<div class="empty">Save folder not found.<br><br><button data-act="pick" class="pri">Choose folder</button></div>'; return; }
     var l = await list();
     await Promise.all(l.map(async function (m) { m.world = await worldInfo(j(j(bakDir, m.id), 'data')); }));
-    var rows = l.map(function (m) {
-      return '<div class="snap"><div><h4>' + esc(m.tag || 'Snapshot') + '<span class="tag ' + (m.auto ? '' : 'man') + '">' + (m.auto ? 'Auto' : 'Manual') + '</span>' + (m.world && m.world.difficulty === '3' ? '<span class="tag iron">Ironman</span>' : '') + '</h4>' +
-        (m.world ? '<div class="meta wi">' + fmtWorld(m.world) + '</div>' : '') + '<div class="meta">' + new Date(m.created).toLocaleString() + ' &middot; ' + m.files + ' items &middot; ' + fmtSize(m.size) + '</div></div>' +
-        '<div class="acts" data-id="' + esc(m.id) + '"><button data-act="restore" class="pri">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
-    }).join('');
-    var autoN = l.filter(function (m) { return m.auto && m.tag !== 'Before restore'; }).length;
-    v.innerHTML = head + '<div class="bar"><button data-act="backup" class="pri">Back up now</button>' + (autoN ? '<button data-act="delauto" class="dng">Delete ' + autoN + ' automatic</button>' : '') + '<span class="sp"></span><span class="meta">' + l.length + ' snapshot' + (l.length === 1 ? '' : 's') + '</span></div>' +
-      (rows || '<div class="empty">No snapshots yet. Back up now, or play and let auto backup do it.</div>');
+    var card = function (m) {
+      var exact = new Date(m.created).toLocaleString();
+      return '<div class="snap' + (m.auto ? '' : ' man') + '"><div><h4>' + esc(m.tag || 'Snapshot') + '<span class="tag ' + (m.auto ? '' : 'man') + '">' + (m.auto ? 'Auto' : 'Manual') + '</span></h4>' +
+        (m.world ? '<div class="meta wi">' + fmtWorld(m.world) + '</div>' : '') + '<div class="meta"><span title="' + esc(exact) + '">' + esc(ago(m.created)) + '</span> &middot; ' + m.files + ' files &middot; ' + fmtSize(m.size) + '</div></div>' +
+        '<div class="acts" data-id="' + esc(m.id) + '"><button data-act="restore">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
+    };
+    var man = l.filter(function (m) { return !m.auto; }), auto = l.filter(function (m) { return m.auto; });
+    var autoN = auto.filter(function (m) { return m.tag !== 'Before restore'; }).length;
+    var autoOpen = localStorage.getItem('snap_auto_open'); autoOpen = autoOpen === null ? !man.length : autoOpen === '1';
+    var fbtn = function (k, label) { return '<button type="button" class="sg' + (SNF === k ? ' on' : '') + '" data-act="snf" data-v="' + k + '">' + label + '</button>'; };
+    v.dataset.f = SNF;
+    v.innerHTML = head + '<div class="bar"><button data-act="backup" class="pri">Back up now</button>' + (autoN ? '<button data-act="delauto" class="dng">Delete ' + autoN + ' automatic</button>' : '') + '<span class="sp"></span>' +
+      (l.length ? '<div class="seg" role="group" aria-label="Show">' + fbtn('all', 'All') + fbtn('man', 'Manual') + fbtn('auto', 'Auto') + '</div>' : '') + '<span class="meta">' + l.length + ' snapshot' + (l.length === 1 ? '' : 's') + '</span></div>' +
+      (l.length ? (man.length ? '<div class="mang"><h3>Manual snapshots (' + man.length + ')</h3>' + man.map(card).join('') + '</div>' : '<div class="mang meta nomanual">No manual snapshots yet. Use Back up now before you try something risky.</div>') +
+        (auto.length ? '<details class="autog"' + (autoOpen ? ' open' : '') + '><summary>Automatic backups (' + auto.length + ')</summary>' + auto.map(card).join('') + '</details>' : '')
+        : '<div class="empty">No snapshots yet. Back up now, or play and let auto backup do it.</div>');
   }
+
   async function renderSettings() {
     var auto = localStorage.getItem('auto') === '1';
     pageEl('settings').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
@@ -1781,6 +1858,12 @@
       else if (act === 'del') { if (!(await ask('Delete snapshot?', 'This cannot be undone.', { ok: 'Delete' }))) return; await fs.remove(j(bakDir, id), { recursive: true }); if (RS.src === id) RS.src = 'live'; if (IS.src === id) { IS.src = SS.src = TS.src = ES.src = 'live'; resetAllPages(); } }
       else if (act === 'srclive') { RS.src = 'live'; }
       else if (act === 'pick') { var p = await T.dialog.open({ directory: true, defaultPath: saveDir, title: 'Choose the Road to Vostok save folder' }); if (!p) return; saveDir = p; localStorage.setItem('saveDir', p); await startWatch(); }
+      else if (act === 'snf') {
+        SNF = b.dataset.v; localStorage.setItem('snf', SNF); var sv = pageEl('snapshots'); sv.dataset.f = SNF;
+        sv.querySelectorAll('.seg .sg').forEach(function (x) { x.classList.toggle('on', x.dataset.v === SNF); });
+        var ag = sv.querySelector('.autog'); if (ag && SNF === 'auto') ag.open = true;
+        return;
+      }
       else if (act === 'hand-drop') { releaseHand(); refreshInsp(); return; }
       else if (act === 'row-pick') { holdItem(b.closest('tr')); return; }
       else if (act === 'undo-move') { gUndo(); return; }
@@ -1807,7 +1890,8 @@
         var chosen = Array.prototype.filter.call(document.querySelectorAll('input[data-mod]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mod; });
         if (!chosen.length) { toast('Tick at least one mod to remove'); return; }
         var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.join(', '), chosen);
-        await ask('Cleaned copy created', (r.done.length ? 'Removed items in: ' + r.done.join(', ') + '. ' : 'No item slots needed removing. ') + (r.left ? r.left + ' reference(s) to these mods remain (not item slots). ' : '') + 'Find it under Snapshots and restore it when the game is closed.', { ok: 'OK' });
+        var rep = (RS.mods || []).filter(function (m) { return chosen.indexOf(m.name) !== -1 && m.items; }).map(function (m) { return '\u2022 ' + m.name + ': ' + m.items + ' item' + (m.items === 1 ? '' : 's') + (m.stored ? ' and ' + m.stored + ' stored inside them' : ''); });
+        await ask('Cleaned copy created', (r.done.length ? 'Removed:\n' + (rep.length ? rep.join('\n') : r.done.join(', ')) + '\n\nChanged files: ' + r.done.map(function (x) { return x.replace(/ \(.*$/, ''); }).join(', ') + '.' : 'No item slots needed removing.') + (r.left ? '\n' + r.left + ' reference(s) to these mods remain (not item slots).' : '') + '\n\nIt is saved as "' + r.meta.tag + '" under Snapshots. Restore it when the game is closed. Your current save was not changed.', { ok: 'OK' });
       }
       else if (act === 'inv-edit' || act === 'sh-edit') {
         var S1 = act === 'sh-edit' ? SS : IS;

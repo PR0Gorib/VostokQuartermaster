@@ -215,3 +215,22 @@ tr.away td{opacity:.45;text-decoration:line-through}
 .hand .hbox:hover{border-color:var(--text)}.hand button{width:100%}
 .hand.float{position:fixed;right:24px;bottom:72px;width:300px;z-index:60;box-shadow:0 8px 24px #000a}
 tr.er.held td{background:#241c18;outline:1px dashed var(--mut);outline-offset:-1px}
+/* a hidden grid item must really be gone (the display:flex of .gi used to override the hidden attribute); a moved-away row leaves the list */
+.gi[hidden],.eqs[hidden]{display:none}
+tr.away{display:none}
+/* ---- snapshots page ---- */
+.snap.man{border-left:3px solid var(--rust)}
+.snap .acts button[data-act=restore]:hover{border-color:var(--rust);color:#f0a78f}
+.snap .acts button[data-act=restore]{padding:7px 16px}
+.mang h3{margin:4px 0 8px}.nomanual{padding:8px 2px 12px}
+.autog{margin:14px 0}.autog>summary{cursor:pointer;color:var(--mut);padding:6px 2px;margin-bottom:8px;font-weight:600}
+[data-f=man] .autog{display:none}[data-f=auto] .mang{display:none}
+.bar .seg{margin-right:6px}
+/* ---- repair page ---- */
+.mcard{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:8px}
+.mh{display:flex;gap:8px;align-items:center;cursor:pointer;font-size:15px;margin-bottom:4px}.mh .tag{margin-left:2px}
+.mwarn{margin-top:8px;padding:7px 10px;border:1px solid #d9a441;border-radius:4px;background:#2a2417;color:#e6c27a;font-size:12.5px}
+.mdet{margin:8px 0 0;background:transparent;border:0;padding:0}.mdet>summary{color:var(--mut);padding:2px 0}
+.mlist{margin:8px 0 0;padding:0 0 0 4px;list-style:none;display:flex;flex-direction:column;gap:3px;max-height:260px;overflow:auto}
+.minside{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}.minside .qrow{margin-top:6px}
+.rsum{margin:0 0 12px}

@@ -263,7 +263,7 @@
   /* ---------- item icons (read from the installed game on demand; nothing is copied or stored) ---------- */
   var STEAM_DEFAULT = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Road to Vostok', GD_AUTO = false, gameDir = '', IC = { pack: null, idx: null, url: {}, busy: null, fail: '', close: null };
   // one folder for everything: the mods folder is the "mods" folder inside the game folder
-  var APP_VER = '1.2.0';   // fallback only; the real version is read from the app at startup (keep it equal to package.json)
+  var APP_VER = '1.3.0';   // fallback only; the real version is read from the app at startup (keep it equal to package.json)
   function setGame(dir) { gameDir = dir || ''; modsDir = gameDir ? j(gameDir, 'mods') : ''; }
   function pckReader(file, size) {
     var fh = null, q = Promise.resolve();
@@ -553,7 +553,7 @@
       if (ie.some(function (e) { return e.file === 'Character.tres'; })) parts.push('inventory');
       if (ie.some(function (e) { return e.file !== 'Character.tres'; })) parts.push('shelter');
       var shown = ie.filter(function (e) { return !(e.remove && e.movedTo); }), lines = shown.slice(0, 14).map(invLine); if (shown.length > 14) lines.push('...and ' + (shown.length - 14) + ' more');
-      var sum = [plan.added - mvn > 0 ? (plan.added - mvn) + ' added' : '', mvn ? mvn + ' moved' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed - mvn > 0 ? (plan.removed - mvn) + ' removed (including anything stored inside them)' : ''].filter(Boolean).join(', ');
+      var sum = [plan.added - mvn > 0 ? (plan.added - mvn) + ' added' : '', mvn ? mvn + ' moved' : '', plan.edited ? plan.edited + ' changed' : '', plan.removed ? plan.removed + ' removed (including anything stored inside them)' : ''].filter(Boolean).join(', ');
       var eqWarn = (ie.some(function (e) { return e.remove && e.eq; }) ? '\nNote: removing an equipped item may confuse the game\'s held-item state. Test the copy before relying on it.' : '') + (ie.some(function (e) { return e.add; }) ? '\nAdding and moving items is new. Check the copy in game before you rely on it.' : '');
       blocks.push('Inventory and shelters\n' + lines.join('\n') + '\n' + sum + '.' + eqWarn);
     }
@@ -1230,7 +1230,7 @@
       byFile[f].filter(function (e) { return e.remove; }).forEach(function (e) {
         if (gone[e.rid]) return;
         var r = t.removeSlot(e.rid); if (!r.length) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
-        r.forEach(function (id) { gone[id] = true; }); removed += r.length;
+        r.forEach(function (id) { gone[id] = true; }); if (!e.movedTo) removed += r.length;
       });
       byFile[f].filter(function (e) { return e.weapon; }).forEach(function (e) {
         if (gone[e.sid]) return;
@@ -1466,7 +1466,7 @@
       return '<h4 class="sh">' + esc(c) + ' <span class="cnt">' + groups[c].length + '</span></h4><div class="sgrid">' + groups[c].sort(function (a, b) { return a.name < b.name ? -1 : 1; }).map(function (x) {
         return '<div class="sitem" title="' + esc(x.name) + '"><span class="ti"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph('misc') + '</span><span class="sn">' + esc(x.name) + '</span>' + (x.rar === 'Rare' || x.rar === 'Legendary' ? '<span class="tag">' + esc(x.rar) + '</span>' : '') + (x.val ? '<span class="sv" data-v="' + x.val + '" data-n="' + x.amt + '" title="Base value \u20ac' + x.val + (x.amt ? ' for a stack of ' + x.amt + ' rounds' : '') + ', plus the trader\'s tax">\u20ac' + x.val + '</span>' : '') + '</div>';
       }).join('') + '</div>';
-    }).join('') : '<div class="meta">Nothing to show.</div>') + '<details><summary>Details</summary><pre class="diag">' + esc(diag) + '</pre><div class="qbar"><button type="button" data-act="tr-diag" data-k="' + k + '">Collect more diagnostics</button><button type="button" data-act="tr-copy">Copy</button></div><pre class="diag dg"></pre></details>';
+    }).join('') : '<div class="meta">Nothing to show.</div>') + '<details><summary>Details</summary><pre class="diag">' + esc(diag) + '</pre></details>';
     stockPrices(box.closest('.trp'));
     fillIcons();
   }
@@ -1483,14 +1483,6 @@
     fillQuestInfo(); fillStock(TS.sel);
   }
   // "Needs -> Reward" text for each task row, read from the game files
-  function itemList(paths) {
-    var n = {}, order = [];
-    paths.forEach(function (p) { if (!n[p]) { n[p] = 0; order.push(p); } n[p]++; });
-    return order.map(function (p) {
-      var nm = Tres.itemName(p).replace(/ F$/, '') + (/^res:\/\/Items\//i.test(p) ? '' : ' (furniture)');
-      return esc(nm) + (n[p] > 1 ? ' \u00d7' + n[p] : '');
-    }).join(', ');
-  }
   async function fillQuestInfo() {
     var cells = Array.prototype.slice.call(document.querySelectorAll('#view .qi')), note = $('#trnote');
     if (note) note.hidden = true;
@@ -1643,6 +1635,7 @@
   // "22 min ago" for recent snapshots, the date for old ones (the exact time is in the tooltip)
   function ago(iso) {
     var s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000), d = new Date(iso);
+    if (isNaN(s)) return 'unknown time';
     if (s < 60) return 'just now';
     if (s < 3600) return Math.round(s / 60) + ' min ago';
     if (s < 86400) { var h = Math.round(s / 3600); return h + (h === 1 ? ' hour ago' : ' hours ago'); }
@@ -1906,16 +1899,6 @@
       else if (act === 'tr-edit') {
         if (TS.edit && collectQuestEdits().length && !(await ask('Discard changes?', 'Your unsaved changes on this page will be lost.', { ok: 'Discard' }))) return;
         TS.edit = !TS.edit;
-      }
-      else if (act === 'tr-diag') {
-        var dg = b.closest('details').querySelector('pre.dg'); dg.textContent = 'Working...';
-        try { dg.textContent = await Pck.stockDiag(IC.pack, TRADERS[b.dataset.k][0]); } catch (e) { dg.textContent = 'Failed: ' + String(e && e.message || e); }
-        return;
-      }
-      else if (act === 'tr-copy') {
-        var cp = b.closest('details').querySelectorAll('pre'), ctext = Array.prototype.map.call(cp, function (x) { return x.textContent; }).join('\n\n');
-        try { await navigator.clipboard.writeText(ctext); toast('Copied'); } catch (e) { toast('Could not copy: select the text and press Ctrl+C'); }
-        return;
       }
       else if (act === 'tr-pick') {
         TS.sel = b.dataset.k;

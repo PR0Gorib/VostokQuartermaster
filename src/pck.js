@@ -362,68 +362,7 @@
     return { ok: true, file: 'item definitions (' + sells._count + ' checked)', key: key + ' flag', items: items };
   }
 
-  // Text dump used to find out where the game keeps each trader's stock: the trader's resource, Loot/LT_Master, and a census of every property that item
-  // definitions carry (with the values they take), plus a few sample items. Only built when the user asks for it.
-  async function stockDiag(pack, folder) {
-    var out = [];
-    var sv = function (v, d) {
-      if (v === null || v === undefined) return String(v);
-      if (typeof v === 'string') return JSON.stringify(v.length > 70 ? v.slice(0, 70) + '...' : v);
-      if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-      if (typeof v.ext === 'string') return v.ext;
-      if (Array.isArray(v)) return '[' + v.length + (v.length ? ': ' + v.slice(0, 3).map(function (x) { return sv(x, 1); }).join(', ') + (v.length > 3 ? ', ...' : '') : '') + ']';
-      return '{' + Object.keys(v).slice(0, 4).join(',') + '}';
-    };
-    var load = async function (p) {
-      var real = p;
-      if (pack.has(p + '.remap')) { var m = /path="res:\/\/([^"]+)"/.exec(str(await pack.read(p + '.remap'))); real = m ? m[1] : ''; }
-      if (!real || !pack.has(real)) throw new Error('no resource file');
-      return parseRes(await pack.read(real));
-    };
-    var mainObj = function (res) { return res.objects.filter(function (x) { return /^res:\/\//.test(x.path); })[0] || res.objects[res.objects.length - 1]; };
-    var dump = async function (title, path) {
-      out.push('== ' + title + ' (' + path + ') ==');
-      try {
-        var res = await load(path);
-        res.objects.forEach(function (o, i) {
-          out.push('object ' + i + ' ' + (o.type || '') + ' ' + o.path);
-          Object.keys(o.props || {}).forEach(function (k) { out.push('  ' + k + ' = ' + sv(o.props[k], 0)); });
-          if (o.error) out.push('  error: ' + o.error);
-        });
-      } catch (e) { out.push('  failed: ' + String(e && e.message || e)); }
-    };
-    await dump('trader', 'Traders/' + folder + '/' + folder + '.tres');
-    await dump('master loot table', 'Loot/LT_Master.tres');
-    var names = pack.names.filter(function (n) { return /^Items\/(?:[^\/]+\/)+[^\/]+\.tres\.remap$/.test(n) && n.indexOf('/Files/') === -1; }), census = {}, count = 0, samples = [];
-    for (var i = 0; i < names.length && i < 900; i++) {
-      var lp = names[i].replace(/\.remap$/, '');
-      try {
-        var o = mainObj(await load(lp)); if (!o || !o.props) continue; count++;
-        if (samples.length < 2 && /Canned_Tuna|Bandage|Kobra/.test(lp)) samples.push([lp, o]);
-        Object.keys(o.props).forEach(function (k) {
-          var c = census[k] = census[k] || { n: 0, vals: {}, nv: 0 }, v = o.props[k];
-          c.n++;
-          if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || (Array.isArray(v) && v.every(function (x) { return typeof x === 'string'; }))) {
-            var key = JSON.stringify(v); if (!(key in c.vals)) { c.nv++; if (c.nv <= 12) c.vals[key] = 0; } if (key in c.vals) c.vals[key]++;
-          }
-        });
-      } catch (e) { /* skip unreadable */ }
-    }
-    out.push('', '== item properties (' + count + ' item definitions read) ==');
-    Object.keys(census).sort().forEach(function (k) {
-      var c = census[k], vs = Object.keys(c.vals);
-      out.push(k + ' (' + c.n + ')' + (c.nv && c.nv <= 12 ? ': ' + vs.map(function (x) { return x + 'x' + c.vals[x]; }).join(' ') : c.nv ? ': ' + c.nv + ' different values' : ''));
-    });
-    samples.forEach(function (s) {
-      out.push('', '== sample item ' + s[0] + ' ==');
-      Object.keys(s[1].props).forEach(function (k) { out.push('  ' + k + ' = ' + sv(s[1].props[k], 0)); });
-    });
-    var fn = pack.names.filter(function (n) { return /^Assets\/[^\/]+\/[^\/]+_F\.tres\.remap$/.test(n); })[0];
-    if (fn) { try { var fo = mainObj(await load(fn.replace(/\.remap$/, ''))); out.push('', '== sample furniture ' + fn + ' =='); Object.keys(fo.props).forEach(function (k) { out.push('  ' + k + ' = ' + sv(fo.props[k], 0)); }); } catch (e) {} }
-    return out.map(function (l) { return l.length > 220 ? l.slice(0, 220) + '...' : l; }).join('\n');
-  }
-
-  var Pck = { stockDiag: stockDiag, traderStock: traderStock, taskDef: taskDef, open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, itemDef: itemDef, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
+  var Pck = { traderStock: traderStock, taskDef: taskDef, open: open, iconIndex: iconIndex, iconFor: iconFor, itemIcon: itemIcon, itemDef: itemDef, decodeCtex: decodeCtex, _dxtDecode: dxtDecode, _chainSize: chainSize, FMT: FMT };
   root.Pck = Pck;
   if (typeof module !== 'undefined' && module.exports) module.exports = Pck;
 })(typeof window !== 'undefined' ? window : globalThis);

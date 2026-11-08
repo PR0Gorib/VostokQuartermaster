@@ -234,3 +234,5 @@ tr.away{display:none}
 .mlist{margin:8px 0 0;padding:0 0 0 4px;list-style:none;display:flex;flex-direction:column;gap:3px;max-height:260px;overflow:auto}
 .minside{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}.minside .qrow{margin-top:6px}
 .rsum{margin:0 0 12px}
+.set input[type=number]{width:90px;padding:6px 8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;font:inherit}
+button.rl{background:none;border:0;padding:0 4px;color:var(--mut);text-decoration:underline;font-size:11.5px;cursor:pointer}button.rl:hover{color:var(--text)}

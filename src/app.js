@@ -1,7 +1,7 @@
 'use strict';
 (function () {
   var T = window.__TAURI__, fs = T.fs, $ = function (s) { return document.querySelector(s); };
-  var SEP = '\\', saveDir = '', bakDir = '', page = 'snapshots', busyUntil = 0, unwatch = null, timer = null, KEEP_AUTO = 20;
+  var SEP = '\\', saveDir = '', bakDir = '', page = 'snapshots', busyUntil = 0, unwatch = null, timer = null, KEEP_AUTO = Math.min(200, Math.max(3, parseInt(localStorage.getItem('keepauto'), 10) || 20));
   var j = function (a, b) { return a.replace(/[\\/]+$/, '') + SEP + b; };
   var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var fmtSize = function (n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; };
@@ -145,10 +145,11 @@
   var normName = function (s) { return s.toLowerCase().replace(/\.(vmz|zip|pck|vmod|7z)$/, '').replace(/[^a-z0-9]/g, ''); };
   var isTres = function (e) { return !e.isDirectory && /\.tres$/i.test(e.name); };
   async function scanDir(dir) {
-    var have = (await fs.readDir(modsDir)).map(function (e) { return normName(e.name); }), mods = {};
+    var have = (await fs.readDir(modsDir)).map(function (e) { return normName(e.name); }), mods = {}, broken = [];
     for (var e of await fs.readDir(dir)) {
       if (!isTres(e)) continue;
       var txt = await fs.readTextFile(j(dir, e.name)), t = Tres.parse(txt);
+      try { broken = broken.concat(brokenIn(t, e.name)); } catch (_) { /* the check is optional */ }
       t.dependencies().forEach(function (d) {
         if (!d.mod) return;
         var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, stored: 0, other: 0, files: {}, list: [] });
@@ -160,9 +161,10 @@
         m.files[e.name] = 1;
       });
     }
-    return Object.keys(mods).sort().map(function (k) {
+    var res = Object.keys(mods).sort().map(function (k) {
       var m = mods[k], n = normName(k); m.found = have.some(function (h) { return h === n || (n.length > 3 && h.indexOf(n) !== -1); }); return m;
     });
+    res.broken = broken; return res;
   }
   // where every slot of a save file sits: carried, equipped, on the floor, in a container, or inside another item
   function slotWhere(t, file) {
@@ -204,6 +206,38 @@
     });
     return out;
   }
+  // Items whose data is missing, e.g. a loose item with no slot data, or a list that points at a block that is not in the file.
+  // (An older Quartermaster could leave the first kind behind when it removed one of several loose items that shared their data.)
+  function brokenIn(t, file) {
+    var out = [], m = t.main(), where = file.replace(/\.tres$/i, ''), have = {};
+    ids(t.get(m, 'items') || '', 'SubResource').forEach(function (id) {
+      var b = t.subById(id), sd = b && ids(t.get(b, 'slotData') || '', 'SubResource')[0];
+      if (b && (!sd || !t.subById(sd))) out.push({ file: file, kind: 'loose', label: 'Loose item "' + String(t.get(b, 'name') || 'unnamed').replace(/"/g, '') + '" in ' + where + ' has no item data' });
+    });
+    t.blocks.forEach(function (b) { if (b.kind === 'sub_resource') have[b.attrs.id] = 1; });
+    var gone = {};
+    t.blocks.forEach(function (b) {
+      if (b.kind !== 'sub_resource' && b.kind !== 'resource') return;
+      t.blockRefs(b, 'SubResource').forEach(function (r) { if (!have[r] && !gone[r]) { gone[r] = 1; out.push({ file: file, kind: 'dangling', label: 'A list in ' + file + ' points at data that is not in the file (' + r + ')' }); } });
+    });
+    return out;
+  }
+  // removes what brokenIn found; returns how many entries were removed
+  function repairBroken(t) {
+    var n = 0, m = t.main();
+    ids(t.get(m, 'items') || '', 'SubResource').forEach(function (id) {
+      var b = t.subById(id), sd = b && ids(t.get(b, 'slotData') || '', 'SubResource')[0];
+      if (b && (!sd || !t.subById(sd))) { t.removeSlot(id); n++; }
+    });
+    var have = {}, gone = {};
+    t.blocks.forEach(function (b) { if (b.kind === 'sub_resource') have[b.attrs.id] = 1; });
+    t.blocks.forEach(function (b) {
+      if (b.kind !== 'sub_resource' && b.kind !== 'resource') return;
+      t.blockRefs(b, 'SubResource').forEach(function (r) { if (!have[r]) gone[r] = 1; });
+    });
+    Object.keys(gone).forEach(function (r) { t.dropRef(r); n++; });
+    return n;
+  }
   async function snapFrom(src, tag) {
     var n = new Date(), id = await folderFor(tag, false, n);
     var dir = j(bakDir, id), data = j(dir, 'data');
@@ -215,7 +249,7 @@
     } catch (e) { try { await fs.remove(dir, { recursive: true }); } catch (_) { /* leave it */ } throw e; }
     return meta;
   }
-  async function cleanTo(src, tag, chosen) {
+  async function cleanTo(src, tag, chosen, fixBroken) {
     var meta = await snapFrom(src, tag), data = j(j(bakDir, meta.id), 'data'), done = [], left = 0;
     var mine = function (b) { return chosen.indexOf(Tres.modOf(b.attrs.path || '')) !== -1; };
     for (var e of await fs.readDir(data)) {
@@ -223,9 +257,10 @@
       var p = j(data, e.name), t = Tres.parse(await fs.readTextFile(p)), n = 0, st = 0;
       t.ext().filter(function (b) { return b.attrs.type === 'Resource' && mine(b); }).forEach(function (b) { var r = t.removeItemsUsing(b.attrs.id); n += r.slots.length; st += r.children.length; });
       left += t.ext().filter(mine).length;
-      if (!n) continue;
+      var nb = fixBroken ? repairBroken(t) : 0;
+      if (!n && !nb) continue;
       var bad = t.validate(); if (bad.length) throw new Error(e.name + ': ' + bad[0]);
-      await fs.writeTextFile(p, t.serialize()); done.push(e.name + ' (' + n + (st ? ' + ' + st + ' stored inside' : '') + ')');
+      await fs.writeTextFile(p, t.serialize()); done.push(e.name + ' (' + (n ? n + (st ? ' + ' + st + ' stored inside' : '') : '') + (nb ? (n ? ' + ' : '') + nb + ' broken' : '') + ')');
     }
     return { meta: meta, done: done, left: left };
   }
@@ -251,10 +286,12 @@
         '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' mod data reference' + (m.other === 1 ? '' : 's') + ' (the mod&rsquo;s own data, not items)' : '') + '</div>' +
         (m.stored ? '<div class="mwarn">Removing these also deletes <b>' + m.stored + ' item' + (m.stored === 1 ? '' : 's') + ' stored inside them</b>, such as things kept in this mod&rsquo;s furniture. Open the list to see them first.</div>' : '') + detail + '</div>';
     }).join('');
-    var miss = mods.filter(function (m) { return !m.found; });
-    var note = mods.length ? '<p class="meta rsum">' + (miss.length ? miss.length + ' of ' + mods.length + ' mod' + (mods.length === 1 ? '' : 's') + ' not found in your mods folder (ticked below). ' : 'All mods were found in your mods folder. ') + 'Nothing is removed until you press Create cleaned copy.</p>' : '';
-    v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' + note +
-      (rows || '<div class="empty">No items from mods were found in this save.</div>');
+    var miss = mods.filter(function (m) { return !m.found; }), bk = mods.broken || [], bfiles = {};
+    bk.forEach(function (x) { bfiles[x.file] = 1; });
+    var brokenCard = bk.length ? '<div class="mcard"><label class="mh"><input type="checkbox" data-broken checked> <b>Broken items</b><span class="tag man">' + bk.length + ' found</span></label><div class="meta">' + bk.length + ' entr' + (bk.length === 1 ? 'y' : 'ies') + ' with missing data in ' + Object.keys(bfiles).join(', ') + '</div><div class="mwarn">These entries point at data that is not in the save, so the game cannot load them properly. Cleaning removes only these entries and touches nothing else.</div><details class="mdet"><summary>Show what will be removed</summary><ul class="mlist">' + bk.slice(0, 40).map(function (x) { return '<li>' + esc(x.label) + '</li>'; }).join('') + (bk.length > 40 ? '<li class="meta">...and ' + (bk.length - 40) + ' more</li>' : '') + '</ul></details></div>' : '';
+    var note = (mods.length || bk.length) ? '<p class="meta rsum">' + (mods.length ? (miss.length ? miss.length + ' of ' + mods.length + ' mod' + (mods.length === 1 ? '' : 's') + ' not found in your mods folder (ticked below). ' : 'All mods were found in your mods folder. ') : '') + (bk.length ? '' : 'No broken items found. ') + 'Nothing is removed until you press Create cleaned copy.</p>' : '';
+    v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length || bk.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' + note +
+      ((brokenCard + rows) || '<div class="empty">Nothing to repair: no items from mods and no broken items were found in this save.</div>');
     fillIcons();
     $('#rsrc').value = RS.src;
   }
@@ -366,7 +403,7 @@
     ['Head', 0, 6, 1, 1], ['Torso', 1, 6, 1, 1], ['Legs', 2, 6, 1, 1], ['Belt', 3, 6, 1, 1], ['Feet', 4, 6, 1, 1], ['Hands', 5, 6, 1, 1],
     ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
   function eqBarHtml() {
-    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span> <select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
+    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span>' + RL + ' <select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
       '<select class="eqitem" disabled><option value="">Choose a slot first</option></select><button data-act="eq-add">Equip</button><div class="eqatt" hidden></div><span class="meta amsg"></span></div>';
   }
   // base-game items allowed in each equipment slot, from the item definitions (built once)
@@ -925,7 +962,7 @@
 
   // the "add an item" bar above a grid (shelter containers and the carried inventory)
   function addBarHtml(file, cid, W, H, cname) {
-    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
+    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span>' + RL + '<input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
   }
   function shelterPageHtml(name, t, m, ext) {
     var seen = {};
@@ -1169,7 +1206,7 @@
         }).join('') + '</select></div>';
     }).join('');
     if (!boxes && !isW) return '<tr class="wrow"><td colspan="5"><div class="wmodal"><button class="wclose" data-act="wp-close" title="Close (Esc)">&times;</button><div class="meta">Nothing to choose for ' + esc(Tres.itemName(tr.dataset.path)) + ' in the game data.</div></div></td></tr>';
-    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="wmodal"><button class="wclose" data-act="wp-close" title="Close (Esc)">&times;</button><h4>Edit build &mdash; ' + esc(Tres.itemName(tr.dataset.path)) + '</h4><div class="meta"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span> ' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
+    return '<tr class="wrow" data-wmax="' + wd.magazineSize + '"><td colspan="5"><div class="wmodal"><button class="wclose" data-act="wp-close" title="Close (Esc)">&times;</button><h4>Edit build &mdash; ' + esc(Tres.itemName(tr.dataset.path)) + '</h4><div class="meta"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span>' + RL + ' ' + esc(Tres.itemName(tr.dataset.path)) + (isW ? ' &middot; ammo: ' + (wd.ammo ? esc(Tres.itemName(wd.ammo)) : 'unknown') + (hasMag ? '' : ' &middot; built-in magazine, ' + wd.magazineSize + ' rounds') : '') + '</div>' +
       '<div class="wbuild"><div class="wcenter"><img data-ic="' + esc(tr.dataset.path) + '" alt="" hidden><span class="wcn">' + esc(Tres.itemName(tr.dataset.path)) + '</span></div>' + boxes + '</div>' +
       (isW ? '<div class="fgrid"><label class="fld chk"><input type="checkbox" data-w="wch"' + (tr.dataset.chi === '1' ? ' checked' : '') + '> Round in chamber</label></div>' : '') +
       '<div class="meta">Click a box to choose a part. ' + (isW ? 'Rounds loaded: use the Qty box in the item row (it follows the magazine size). ' : '') + 'Choices are what the game lists as compatible' + (isW && XMAGS ? ', plus other magazines for the same ammo' : '') + '.</div></div></td></tr>';
@@ -1566,7 +1603,7 @@
       var rest = CONDS.filter(function (x) { return has(x) && !shown[x[0]] && ccat.indexOf(x) === -1; });
       if (rest.length) cg += '<h3>Other conditions</h3><div class="chips">' + rest.map(function (x) { return chkHtml(x, ''); }).join('') + '</div>';
       html += cg;
-      if (cat.length || ccat.length) html += '<h3>Cat <span class="tag exp">Feedback needed</span></h3><p class="meta">Cat editing has not been confirmed in game yet: the cat has to be found first, so these changes may do nothing. Tell us how it goes.</p>' + (cat.length ? '<div class="vgrid">' + cat.map(meterHtml).join('') + '</div>' : '') + (ccat.length ? '<div class="chips">' + ccat.map(function (x) { return chkHtml(x, 'neu'); }).join('') + '</div>' : '');
+      if (cat.length || ccat.length) html += '<h3>Cat <span class="tag exp">Feedback needed</span>' + RL + '</h3><p class="meta">Cat editing has not been confirmed in game yet: the cat has to be found first, so these changes may do nothing. Tell us how it goes.</p>' + (cat.length ? '<div class="vgrid">' + cat.map(meterHtml).join('') + '</div>' : '') + (ccat.length ? '<div class="chips">' + ccat.map(function (x) { return chkHtml(x, 'neu'); }).join('') + '</div>' : '');
     } else html += '<div class="empty">No Character.tres in this save.</div>';
     if (wo) {
       var sel = function (k, label, pairs, cur) {
@@ -1676,8 +1713,9 @@
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
       modSizeHtml() + magSettingHtml() + warnSettingHtml() + diagHtml() +
-      '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. The newest ' + KEEP_AUTO + ' automatic snapshots are kept; manual ones are never removed.</p>' +
-      '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label></div>' +
+      '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. Only the newest automatic snapshots are kept (you choose how many); your manual snapshots and the "Before restore" copies are never removed.</p>' +
+      '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label>' +
+      '<p class="mt"><label>Automatic snapshots to keep <input type="number" id="keepauto" min="3" max="200" step="1" value="' + KEEP_AUTO + '"></label></p><p class="meta">From 3 to 200. Older ones are removed the next time an automatic snapshot is made.</p></div>' +
       '<div class="set about"><h4>About</h4>' +
       '<div class="ab-head"><div class="ab-name">Vostok Quartermaster <span class="tag">v' + esc(APP_VER) + '</span></div><div class="meta">Back up, repair, inspect and edit your Road to Vostok saves. Made for Build 2 saves.</div></div>' +
       '<div class="ab-row"><div class="ab-label">Updates</div><div class="ab-body"><div class="ab-line">' + updStatus() + '</div><div class="ab-line"><button data-act="chkupd">Check for updates</button>' + (updAvail() ? '<button class="pri" data-act="open-url" data-url="' + esc(updUrl()) + '">View release</button>' : '') + '</div>' +
@@ -1774,6 +1812,7 @@
 
   /* ---------- update check (GitHub releases; only a link is shown, nothing is downloaded or installed) ---------- */
   var REPO_URL = 'https://github.com/PR0Gorib/VostokQuartermaster', UP = { tag: '', url: '' };
+  var RL = ' <button type="button" class="rl" data-act="open-url" data-url="' + REPO_URL + '/issues" title="Opens GitHub in your browser">Report a problem</button>';
   function verParts(v) { var m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v || '').trim()); return m ? [+m[1], +m[2], +m[3]] : null; }
   function isNewer(a, b) { var x = verParts(a), y = verParts(b); if (!x || !y) return false; for (var i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; }
   function updAvail() { return !!UP.tag && isNewer(UP.tag, APP_VER); }
@@ -1881,9 +1920,11 @@
       else if (act === 'pickgame') { var g = await T.dialog.open({ directory: true, defaultPath: gameDir || undefined, title: 'Choose the Road to Vostok game folder (the one with RTV.pck)' }); if (!g) return; GD_AUTO = false; setGame(g); localStorage.setItem('gameDir', g); iconReset(); }
       else if (act === 'clean') {
         var chosen = Array.prototype.filter.call(document.querySelectorAll('input[data-mod]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mod; });
-        if (!chosen.length) { toast('Tick at least one mod to remove'); return; }
-        var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.join(', '), chosen);
+        var fixBroken = !!document.querySelector('input[data-broken]:checked');
+        if (!chosen.length && !fixBroken) { toast('Tick at least one mod or the broken items to remove'); return; }
+        var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.concat(fixBroken ? ['broken items'] : []).join(', '), chosen, fixBroken);
         var rep = (RS.mods || []).filter(function (m) { return chosen.indexOf(m.name) !== -1 && m.items; }).map(function (m) { return '\u2022 ' + m.name + ': ' + m.items + ' item' + (m.items === 1 ? '' : 's') + (m.stored ? ' and ' + m.stored + ' stored inside them' : ''); });
+        if (fixBroken && (RS.mods.broken || []).length) rep.push('\u2022 Broken items: ' + RS.mods.broken.length + ' entr' + (RS.mods.broken.length === 1 ? 'y' : 'ies'));
         await ask('Cleaned copy created', (r.done.length ? 'Removed:\n' + (rep.length ? rep.join('\n') : r.done.join(', ')) + '\n\nChanged files: ' + r.done.map(function (x) { return x.replace(/ \(.*$/, ''); }).join(', ') + '.' : 'No item slots needed removing.') + (r.left ? '\n' + r.left + ' reference(s) to these mods remain (not item slots).' : '') + '\n\nIt is saved as "' + r.meta.tag + '" under Snapshots. Restore it when the game is closed. Your current save was not changed.', { ok: 'OK' });
       }
       else if (act === 'inv-edit' || act === 'sh-edit') {
@@ -1959,7 +2000,7 @@
     if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }
     if (cw === 'r') { var rtr = ev.target.closest('tr'), rbx = rtr && rtr.dataset.slot ? document.querySelector('.eqs[data-slot="' + rtr.dataset.slot + '"]') : null; if (rbx) rbx.classList.toggle('rm', ev.target.checked); }
     if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC || row.dataset.wp ? 0 : 1, nn)); }
-    if (/^(esrc|tsrc|isrc|ssrc)$/.test(ev.target.id)) { setSource(ev.target.value); return; } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
+    if (/^(esrc|tsrc|isrc|ssrc)$/.test(ev.target.id)) { setSource(ev.target.value); return; } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.id === 'keepauto') { var kn = Math.min(200, Math.max(3, parseInt(ev.target.value, 10) || 20)); KEEP_AUTO = kn; ev.target.value = kn; localStorage.setItem('keepauto', String(kn)); toast('Saved'); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 
   document.addEventListener('input', function (ev) {
     var tw = ev.target.dataset && ev.target.dataset.w;

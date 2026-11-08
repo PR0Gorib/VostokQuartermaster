@@ -184,6 +184,9 @@
 
   // Remove one sub_resource (an item slot) and everything it owns (items stored inside it, recursively),
   // dropping the references to them from arrays. Returns the removed ids; an empty list if the id does not exist.
+  // Remove every reference to a block that is not in the file (from lists; a lone property is blanked). Used to repair dangling references.
+  Tres.prototype.dropRef = function (subId) { removeFromArrays(this, subId); };
+
   Tres.prototype.removeSlot = function (subId) {
     var self = this;
     if (!this.subById(subId)) return [];

@@ -119,6 +119,8 @@
 
   /* ---------- world info (day, season, difficulty, weather) ---------- */
   // In-game values as stored in World.tres. Unknown numbers fall back to showing the raw value.
+  // Ironman: permadeath everywhere. Darkness: permadeath only in the Vostok region.
+  function diffBadge(d) { return d === '3' ? '<span class="tag iron" title="Permadeath">Ironman</span>' : d === '2' ? '<span class="tag dk" title="Permadeath in the Vostok region only">Darkness</span>' : ''; }
   var WORLD = { difficulty: { 1: 'Standard', 2: 'Darkness', 3: 'Ironman' }, season: { 1: 'Summer', 2: 'Winter' } };
   async function worldInfo(dataDir) {
     try {
@@ -962,7 +964,7 @@
 
   // the "add an item" bar above a grid (shelter containers and the carried inventory)
   function addBarHtml(file, cid, W, H, cname) {
-    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span>' + RL + '<input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
+    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '">' + (cid === INV_CID ? FBTAG : '') + '<input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
   }
   function shelterPageHtml(name, t, m, ext) {
     var seen = {};
@@ -992,7 +994,7 @@
     if (SS.src !== 'live' && !l.some(function (m) { return m.id === SS.src; })) SS.src = 'live';
     var dir = SS.src === 'live' ? saveDir : j(j(bakDir, SS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Drag items to move them, even into another container (R turns the item, arrow keys nudge the selected one, Ctrl+Z undoes). To move an item to another page, pick it up in the inspector first. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it.' : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.shelter ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Shelter</h1><p class="sub">' + (SS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to a container, then create an edited copy. Drag items to move them, even into another container (R turns the item, arrow keys nudge the selected one, Ctrl+Z undoes). To move an item to another page, pick it up in the inspector first. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. Adding items is new: test the copy in the game before relying on it. ' + FBTAG : 'What your shelters store. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="ssrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.shelter ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (SS.edit ? '<button data-act="sh-edit">Exit edit mode</button><button data-act="sh-apply" class="pri">Create edited copy</button>' : '<button data-act="sh-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#ssrc').value = SS.src; return; }
     var shelters = [];
     try {
@@ -1609,7 +1611,7 @@
       var sel = function (k, label, pairs, cur) {
         if (!pairs.some(function (p) { return p[0] === cur; })) pairs = pairs.concat([[cur, cur]]);
         var txt = (pairs.filter(function (p) { return p[0] === cur; })[0] || [0, cur])[1];
-        var head2 = rb(label); if (k === 'difficulty') head2 = head2.replace('</span>', '</span><span class="tag iron" data-iron hidden>Ironman</span>');
+        var head2 = rb(label); if (k === 'difficulty') head2 = head2.replace('</span>', '</span><span class="tag" data-diff hidden></span>');
         return '<div class="fld wf" data-bx>' + head2 + '<select aria-label="' + esc(label) + '"' + attrs('World', k, k === 'weather' ? 'str' : 'int', label, cur, ' data-init-text="' + esc(txt) + '"') + '>' + pairs.map(function (p) { return '<option value="' + esc(p[0]) + '"' + (p[0] === cur ? ' selected' : '') + '>' + esc(p[1]) + '</option>'; }).join('') + '</select></div>';
       };
       var day = gv(wo, 'day'), tm = gv(wo, 'time'), tinit = tm !== null && !isNaN(parseFloat(tm)) ? fmtTime(parseFloat(tm)) : null, nr = gv(wo, 'nomadsRemaining');
@@ -1643,8 +1645,8 @@
       hp.textContent = isNaN(n) ? '' : n >= 50 ? 'Roaming Nomads will trade with you.' : 'Below 50, roaming Nomads are hostile and will not trade.';
       hp.classList.toggle('good', !isNaN(n) && n >= 50); hp.classList.toggle('bad', !isNaN(n) && n < 50);
     }
-    var df = root.querySelector('[data-k="difficulty"]'), it = root.querySelector('[data-iron]');
-    if (df && it) it.hidden = df.value !== '3';
+    var df = root.querySelector('[data-k="difficulty"]'), it = root.querySelector('[data-diff]');
+    if (df && it) { var dv = df.value; it.hidden = dv !== '2' && dv !== '3'; it.className = 'tag ' + (dv === '3' ? 'iron' : 'dk'); it.textContent = dv === '3' ? 'Ironman' : 'Darkness'; it.title = dv === '3' ? 'Permadeath' : 'Permadeath in the Vostok region only'; }
   }
   function edSyncAll() {
     document.querySelectorAll('#pg-edit [data-k]').forEach(function (el) {
@@ -1683,7 +1685,7 @@
   var SNF = localStorage.getItem('snf') || 'all';   // snapshot list filter: all / man / auto
   async function renderSnapshots() {
     var ok = await fs.exists(saveDir), v = pageEl('snapshots'), lw = ok ? await worldInfo(saveDir) : null;
-    var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) + (lw.difficulty === '3' ? ' <span class="tag iron">Ironman</span>' : '') : '') + '</p>';
+    var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) + (diffBadge(lw.difficulty) ? ' ' + diffBadge(lw.difficulty) : '') : '') + '</p>';
     if (!ok) { v.innerHTML = head + '<div class="empty">Save folder not found.<br><br><button data-act="pick" class="pri">Choose folder</button></div>'; return; }
     var l = await list();
     await Promise.all(l.map(async function (m) { m.world = await worldInfo(j(j(bakDir, m.id), 'data')); }));
@@ -1705,6 +1707,14 @@
         : '<div class="empty">No snapshots yet. Back up now, or play and let auto backup do it.</div>');
   }
 
+  var THEME_NAMES = { dark: 'Dark', light: 'Light', system: 'System' };
+  function themeNow() { return window.VQTheme ? window.VQTheme.get() : 'dark'; }
+  function syncThemeBtn() { var b = $('#themebtn'); if (b) b.textContent = 'Theme: ' + (THEME_NAMES[themeNow()] || 'Dark'); }
+  function themeHtml() {
+    var cur = themeNow();
+    return '<div class="set"><h4>Appearance</h4><p>Dark is the default. System follows your Windows setting. Item grids and slots keep their dark look in every theme, so the game\'s icons stay easy to see.</p>' +
+      ['dark', 'light', 'system'].map(function (k) { return '<label class="th"><input type="radio" name="theme" value="' + k + '"' + (cur === k ? ' checked' : '') + '> ' + THEME_NAMES[k] + '</label>'; }).join('') + '</div>';
+  }
   async function renderSettings() {
     var auto = localStorage.getItem('auto') === '1';
     pageEl('settings').innerHTML = '<h1>Settings</h1><p class="sub">Vostok Quartermaster</p>' +
@@ -1712,7 +1722,7 @@
       '<div class="set"><h4>Game folder</h4><p>' + esc(gameDir || 'Not set') + (GD_AUTO ? ' (found automatically)' : '') + '</p><button data-act="pickgame">Choose&hellip;</button><p class="mt">Used for item icons and to check which mods are installed (the <b>mods</b> folder inside it). Icons are read from your own game files when needed and are never copied into the app or its backups.' + (IC.fail ? ' <span class="bad">Could not read icons: ' + esc(IC.fail) + ' &mdash; choose the folder again.</span>' : '') + '</p></div>' +
       '<div class="set"><h4>Backups folder</h4><p>' + esc(bakDir) + '</p><button data-act="open-bak">Show in Explorer</button></div>' +
       '<div class="set"><h4>Skip when backing up</h4><p>Top-level folders left out of snapshots, separated by commas. Restoring never touches them.</p><input id="skip" type="text" value="' + esc(skipList().join(', ')) + '"></div>' +
-      modSizeHtml() + magSettingHtml() + warnSettingHtml() + diagHtml() +
+      themeHtml() + modSizeHtml() + magSettingHtml() + warnSettingHtml() + diagHtml() +
       '<div class="set"><h4>Auto backup (off by default)</h4><p>Creates a snapshot a few seconds after the game saves. Only the newest automatic snapshots are kept (you choose how many); your manual snapshots and the "Before restore" copies are never removed.</p>' +
       '<label><input type="checkbox" id="auto" ' + (auto ? 'checked' : '') + '> Enable auto backup</label>' +
       '<p class="mt"><label>Automatic snapshots to keep <input type="number" id="keepauto" min="3" max="200" step="1" value="' + KEEP_AUTO + '"></label></p><p class="meta">From 3 to 200. Older ones are removed the next time an automatic snapshot is made.</p></div>' +
@@ -1812,7 +1822,9 @@
 
   /* ---------- update check (GitHub releases; only a link is shown, nothing is downloaded or installed) ---------- */
   var REPO_URL = 'https://github.com/PR0Gorib/VostokQuartermaster', UP = { tag: '', url: '' };
+  var FBTAG = '';   // set below, after RL
   var RL = ' <button type="button" class="rl" data-act="open-url" data-url="' + REPO_URL + '/issues" title="Opens GitHub in your browser">Report a problem</button>';
+  FBTAG = '<span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span>' + RL;
   function verParts(v) { var m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v || '').trim()); return m ? [+m[1], +m[2], +m[3]] : null; }
   function isNewer(a, b) { var x = verParts(a), y = verParts(b); if (!x || !y) return false; for (var i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; }
   function updAvail() { return !!UP.tag && isNewer(UP.tag, APP_VER); }
@@ -1894,6 +1906,11 @@
         SNF = b.dataset.v; localStorage.setItem('snf', SNF); var sv = pageEl('snapshots'); sv.dataset.f = SNF;
         sv.querySelectorAll('.seg .sg').forEach(function (x) { x.classList.toggle('on', x.dataset.v === SNF); });
         var ag = sv.querySelector('.autog'); if (ag && SNF === 'auto') ag.open = true;
+        return;
+      }
+      else if (act === 'theme-cycle') {
+        var th = themeNow(); if (window.VQTheme) window.VQTheme.set(th === 'dark' ? 'light' : th === 'light' ? 'system' : 'dark'); syncThemeBtn();
+        var tr0 = document.querySelector('input[name="theme"][value="' + themeNow() + '"]'); if (tr0) tr0.checked = true;
         return;
       }
       else if (act === 'hand-drop') { releaseHand(); refreshInsp(); return; }
@@ -2000,7 +2017,8 @@
     if (ev.target.id === 'xmags') { XMAGS = ev.target.checked; localStorage.setItem('xmags', XMAGS ? '1' : '0'); toast(XMAGS ? 'Same-ammo magazines will be offered' : 'Only the game\'s compatible magazines will be offered'); return; }
     if (cw === 'r') { var rtr = ev.target.closest('tr'), rbx = rtr && rtr.dataset.slot ? document.querySelector('.eqs[data-slot="' + rtr.dataset.slot + '"]') : null; if (rbx) rbx.classList.toggle('rm', ev.target.checked); }
     if (cw === 'c' || cw === 'a') { var row = ev.target.closest('tr'), isC = cw === 'c', nn = parseInt(ev.target.value, 10); if (isNaN(nn)) nn = +(isC ? row.dataset.ci : row.dataset.ai); ev.target.value = Math.min(isC ? 100 : (+ev.target.max > 0 ? +ev.target.max : Infinity), Math.max(isC || row.dataset.wp ? 0 : 1, nn)); }
-    if (/^(esrc|tsrc|isrc|ssrc)$/.test(ev.target.id)) { setSource(ev.target.value); return; } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.id === 'keepauto') { var kn = Math.min(200, Math.max(3, parseInt(ev.target.value, 10) || 20)); KEEP_AUTO = kn; ev.target.value = kn; localStorage.setItem('keepauto', String(kn)); toast('Saved'); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
+    if (/^(esrc|tsrc|isrc|ssrc)$/.test(ev.target.id)) { setSource(ev.target.value); return; } if (ev.target.id === 'rsrc') { RS.src = ev.target.value; render(); } if (ev.target.id === 'skip') { localStorage.setItem('skip', ev.target.value); toast('Saved'); } if (ev.target.name === 'theme' && window.VQTheme) { window.VQTheme.set(ev.target.value); syncThemeBtn(); }
+      if (ev.target.id === 'auto') { localStorage.setItem('auto', ev.target.checked ? '1' : '0'); startWatch(); } if (ev.target.id === 'keepauto') { var kn = Math.min(200, Math.max(3, parseInt(ev.target.value, 10) || 20)); KEEP_AUTO = kn; ev.target.value = kn; localStorage.setItem('keepauto', String(kn)); toast('Saved'); } if (ev.target.dataset && ev.target.dataset.w === 'r') { var rr = ev.target.closest('tr'); if (rr) rr.classList.toggle('rm', ev.target.checked); } if (ev.target.id === 'updchk') { localStorage.setItem('updcheck', ev.target.checked ? '1' : '0'); } });
 
   document.addEventListener('input', function (ev) {
     var tw = ev.target.dataset && ev.target.dataset.w;
@@ -2040,6 +2058,7 @@
         try { await cw0.destroy(); } catch (e) { noWarnOnce = true; toast('Could not close from here: ' + e + '. Click the window close button again.'); }
       });
     } catch (e) { /* no window API: nothing to warn about */ }
+    syncThemeBtn();
     render();
   })();
 })();

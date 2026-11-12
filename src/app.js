@@ -405,7 +405,7 @@
     ['Head', 0, 6, 1, 1], ['Torso', 1, 6, 1, 1], ['Legs', 2, 6, 1, 1], ['Belt', 3, 6, 1, 1], ['Feet', 4, 6, 1, 1], ['Hands', 5, 6, 1, 1],
     ['Matches', 0, 7, 1, 1], ['Light', 1, 7, 1, 1], ['NVG', 2, 7, 1, 1], ['Time', 3, 7, 1, 1], ['Map', 4, 7, 1, 1], ['Player', 5, 7, 1, 1]];
   function eqBarHtml() {
-    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><span class="tag man" title="It works in testing but needs more feedback. Your live save is never touched: check the edited copy in game and tell us how it went.">Feedback needed</span>' + RL + ' <select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
+    return '<div class="addbar eqbar" data-file="' + esc(CUR_FILE) + '"><select class="eqslot"><option value="">Equip into slot...</option>' + EQ_LAYOUT.map(function (b) { return '<option value="' + b[0] + '">' + b[0].replace('_', ' ') + '</option>'; }).join('') + '</select>' +
       '<select class="eqitem" disabled><option value="">Choose a slot first</option></select><button data-act="eq-add">Equip</button><div class="eqatt" hidden></div><span class="meta amsg"></span></div>';
   }
   // base-game items allowed in each equipment slot, from the item definitions (built once)
@@ -537,7 +537,7 @@
     if (IS.src !== 'live' && !l.some(function (m) { return m.id === IS.src; })) IS.src = 'live';
     var dir = IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data');
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '">' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
-    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to your carried grid, then create an edited copy. Drag items on a grid to move them, even into another container (R turns the item, arrow keys nudge the selected one, Ctrl+Z undoes). To move an item to another page, pick it up in the inspector first. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed.' : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.inventory ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
+    var head = '<h1>Inventory</h1><p class="sub">' + (IS.edit ? 'Edit mode: change condition and quantity, tick Remove, or add items to your carried grid, then create an edited copy. Drag items on a grid to move them, even into another container (R turns the item, arrow keys nudge the selected one, Ctrl+Z undoes). To move an item to another page, pick it up in the inspector first. Your live save is never touched: the copy appears under Snapshots, and you restore it when the game is closed. ' + FBTAG : 'What you wear and carry. Shelters are on the Shelter page. Nothing here changes your save unless you create an edited copy in Edit mode.') + '</p><div class="bar"><select id="isrc">' + opts + '</select><span class="sp"></span><button data-act="lv-toggle" title="Show the item lists with their edit fields next to the grids">' + (LV.inventory ? 'Hide list view' : 'List view') + '</button><input id="invq" type="search" placeholder="Search items">' + (IS.edit ? '<button data-act="inv-edit">Exit edit mode</button><button data-act="inv-apply" class="pri">Create edited copy</button>' : '<button data-act="inv-edit">Edit mode</button>') + '</div>';
     if (!(await fs.exists(dir))) { v.innerHTML = head + '<div class="empty">No save found yet. Start a new game once, then come back.</div>'; $('#isrc').value = IS.src; return; }
     var chars = '';
     try {
@@ -964,7 +964,7 @@
 
   // the "add an item" bar above a grid (shelter containers and the carried inventory)
   function addBarHtml(file, cid, W, H, cname) {
-    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '">' + (cid === INV_CID ? FBTAG : '') + '<input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
+    return '<div class="addbar" data-file="' + esc(file) + '" data-cid="' + esc(cid) + '" data-cw="' + W + '" data-ch="' + H + '" data-cname="' + esc(cname) + '"><input type="search" class="aitem" list="itemlist" placeholder="Add an item to this container" autocomplete="off"><input type="number" class="aqty" min="1" placeholder="Qty" title="How many to add. Ammo and money: the total count (split into stacks). Anything else: the number of separate items."><button data-act="sh-add">Add</button><select class="atask" title="Add the reward items of a trader task to this container">' + questOptions() + '</select><button data-act="sh-reward">Add rewards</button><span class="meta amsg"></span></div>';
   }
   function shelterPageHtml(name, t, m, ext) {
     var seen = {};
@@ -1156,7 +1156,7 @@
       var d = tr.dataset, c = tr.querySelector('[data-w="c"]'), a = tr.querySelector('[data-w="a"]'), r = tr.querySelector('[data-w="r"]');
       if (d.away) { out.push({ file: d.file, rid: d.rid, sid: d.sid, name: d.name, remove: true, eq: false, movedTo: d.away }); return; }
       if (r && r.checked) { out.push({ file: d.file, rid: d.rid, sid: d.sid, name: d.name, remove: true, eq: !!d.eq }); return; }
-      var e = { file: d.file, sid: d.sid, name: d.name };
+      var e = { file: d.file, rid: d.rid, sid: d.sid, name: d.name };
       if (c && c.value !== d.ci) { var cv = parseInt(c.value, 10); if (isNaN(cv) || cv < 0 || cv > 100) throw new Error(d.name + ': condition must be 0 to 100'); e.cond = cv; e.condFrom = d.ci; }
       if (a && a.value !== d.ai) { var av = parseInt(a.value, 10); var amax = +a.max > 0 ? +a.max : Infinity; var amin = d.wp ? 0 : 1; if (isNaN(av) || av < amin || av > amax) throw new Error(d.name + ': quantity must be ' + amin + (amax < Infinity ? ' to ' + amax : ' or more')); e.amt = av; e.amtFrom = d.ai; }
       if (d.ogx !== undefined && (d.gx !== d.ogx || d.gy !== d.ogy || d.rot !== d.orot)) { e.gx = +d.gx; e.gy = +d.gy; e.rot = d.rot === '1'; e.fromGx = +d.ogx; e.fromGy = +d.ogy; e.fromRot = d.orot === '1'; }
@@ -1249,15 +1249,28 @@
   }
   var numLike = function (raw, v) { return /\./.test(String(raw)) ? Number(v).toFixed(1) : String(v); };
   // builds the new file texts in memory and checks them; nothing is written yet
+  // Several loose items can point at ONE slot-data block, so editing it would change all of them. Give this item a copy of its own first
+  // (the copy goes right before the item, as Godot requires). Returns the id to edit. Items with contents are left alone.
+  function unshareLoose(t, wrapId, slotId, unshared) {
+    var users = 0;
+    t.blocks.forEach(function (bk) { if ((bk.kind === 'sub_resource' || bk.kind === 'resource') && t.blockRefs(bk, 'SubResource').indexOf(slotId) >= 0) users++; });
+    var sb = t.subById(slotId), wb = t.subById(wrapId);
+    if (users < 2 || !sb || !wb || t.get(wb, 'slotData') === undefined || ids(t.get(sb, 'storage') || '', 'SubResource').length) return slotId;
+    var nid = t.addSub(t.keys(sb).map(function (k) { return [k, t.get(sb, k)]; }), 'Resource', wb);
+    t.set(wb, 'slotData', 'SubResource("' + nid + '")');
+    unshared[slotId] = true;
+    return nid;
+  }
   async function planInv(src, edits, rd) {
     var byFile = {}, out = {}, removed = 0, edited = 0, added = 0;
     edits.forEach(function (e) { (byFile[e.file] = byFile[e.file] || []).push(e); });
     for (var f of Object.keys(byFile)) {
-      var t = Tres.parse(rd ? await rd(f) : await fs.readTextFile(j(src, f))), gone = {}, ls = null, addedHere = false;
+      var t = Tres.parse(rd ? await rd(f) : await fs.readTextFile(j(src, f))), gone = {}, ls = null, addedHere = false, unshared = {};
       ls = t.loadSteps();
       var usedBefore = {}; t.ext().forEach(function (b) { if (b.attrs.type === 'Resource' && t.usesOf(b.attrs.id) > 0) usedBefore[b.attrs.id] = true; });
       byFile[f].filter(function (e) { return !e.remove && !e.add && !e.weapon; }).forEach(function (e) {
-        var b = t.subById(e.sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
+        var sid = e.rid && e.rid !== e.sid && (e.cond !== undefined || e.amt !== undefined) ? unshareLoose(t, e.rid, e.sid, unshared) : e.sid;
+        var b = t.subById(sid); if (!b) throw new Error(e.name + ' was not found in ' + f + ' (the save may have changed since this page was loaded)');
         if (e.cond !== undefined) t.set(b, 'condition', numLike(t.get(b, 'condition'), e.cond));
         if (e.amt !== undefined) t.set(b, 'amount', numLike(t.get(b, 'amount'), e.amt));
         if (e.gx !== undefined) {
@@ -1307,6 +1320,10 @@
         else t.appendRef(cb, key, 'SubResource("' + nid + '")');
         added++; addedHere = true;
       }
+      Object.keys(unshared).forEach(function (oid) {   // a shared block that every one of its items has left
+        var used = t.blocks.some(function (bk) { return (bk.kind === 'sub_resource' || bk.kind === 'resource') && t.blockRefs(bk, 'SubResource').indexOf(oid) >= 0; });
+        if (t.subById(oid) && !used) t.removeSlot(oid);
+      });
       t.ext().slice().forEach(function (b) { if (usedBefore[b.attrs.id] && t.usesOf(b.attrs.id) === 0) t.dropExtIfUnused(b.attrs.id); });   // items nothing refers to any more
       t.setLoadSteps(ls);
       if (addedHere) { var ord = t.checkOrder(); if (ord.length) throw new Error(f + ': ' + ord[0]); }
@@ -1709,7 +1726,12 @@
 
   var THEME_NAMES = { dark: 'Dark', light: 'Light', system: 'System' };
   function themeNow() { return window.VQTheme ? window.VQTheme.get() : 'dark'; }
-  function syncThemeBtn() { var b = $('#themebtn'); if (b) b.textContent = 'Theme: ' + (THEME_NAMES[themeNow()] || 'Dark'); }
+  function themeSeen() { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }   // what is on screen, also when the mode is System
+  function syncThemeBtn() {
+    var b = $('#themebtn'); if (b) b.textContent = 'Theme: ' + THEME_NAMES[themeSeen()] + (themeNow() === 'system' ? ' (auto)' : '');
+    var r = document.querySelector('input[name="theme"][value="' + themeNow() + '"]'); if (r) r.checked = true;
+  }
+  document.addEventListener('vqtheme', syncThemeBtn);
   function themeHtml() {
     var cur = themeNow();
     return '<div class="set"><h4>Appearance</h4><p>Dark is the default. System follows your Windows setting. Item grids and slots keep their dark look in every theme, so the game\'s icons stay easy to see.</p>' +
@@ -1909,8 +1931,8 @@
         return;
       }
       else if (act === 'theme-cycle') {
-        var th = themeNow(); if (window.VQTheme) window.VQTheme.set(th === 'dark' ? 'light' : th === 'light' ? 'system' : 'dark'); syncThemeBtn();
-        var tr0 = document.querySelector('input[name="theme"][value="' + themeNow() + '"]'); if (tr0) tr0.checked = true;
+        if (window.VQTheme) window.VQTheme.set(themeSeen() === 'light' ? 'dark' : 'light');   // System is chosen in Settings only
+        syncThemeBtn();
         return;
       }
       else if (act === 'hand-drop') { releaseHand(); refreshInsp(); return; }

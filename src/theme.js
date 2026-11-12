@@ -2,7 +2,10 @@
 (function () {
   var saved = function () { try { return localStorage.getItem('theme') || 'dark'; } catch (e) { return 'dark'; } };
   var light = function () { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches); };
-  var apply = function (mode) { document.documentElement.setAttribute('data-theme', (mode === 'system' ? light() : mode === 'light') ? 'light' : 'dark'); };
+  var apply = function (mode) {
+    document.documentElement.setAttribute('data-theme', (mode === 'system' ? light() : mode === 'light') ? 'light' : 'dark');
+    try { document.dispatchEvent(new CustomEvent('vqtheme')); } catch (e) { /* not needed */ }
+  };
   apply(saved());
   window.VQTheme = {
     get: saved,

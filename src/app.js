@@ -154,10 +154,10 @@
       try { broken = broken.concat(brokenIn(t, e.name)); } catch (_) { /* the check is optional */ }
       t.dependencies().forEach(function (d) {
         if (!d.mod) return;
-        var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, stored: 0, other: 0, files: {}, list: [] });
+        var m = mods[d.mod] || (mods[d.mod] = { name: d.mod, items: 0, stored: 0, rescuable: 0, other: 0, files: {}, list: [] });
         if (d.type === 'Resource') {
           m.items += t.usesOf(d.id);
-          try { var det = modSlots(t, e.name, d.id); m.list = m.list.concat(det); m.stored += det.reduce(function (n, x) { return n + x.inside.length; }, 0); }
+          try { var det = modSlots(t, e.name, d.id); m.list = m.list.concat(det); m.stored += det.reduce(function (n, x) { return n + x.inside.length; }, 0); m.rescuable += det.reduce(function (n, x) { return n + x.rescue.length; }, 0); }
           catch (_) { try { m.stored += Tres.parse(txt).removeItemsUsing(d.id).children.length; } catch (__) { /* count only */ } }
         } else m.other++;
         m.files[e.name] = 1;
@@ -196,17 +196,46 @@
     t.blocks.forEach(function (b) {
       if (b.kind !== 'sub_resource') return;
       var im = /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''); if (!im || im[1] !== extId) return;
-      var inside = [], walk = function (sid, d) {
+      var inside = [], rescue = [], walk = function (sid, d) {
         ids(t.get(t.subById(sid), 'storage') || '', 'SubResource').forEach(function (c) {
           var cb = t.subById(c), cm = cb && /ExtResource\("([^"]+)"\)/.exec(t.get(cb, 'itemData') || '');
           inside.push({ name: cm && ext[cm[1]] ? Tres.itemName(ext[cm[1]]).replace(/ F$/, '') : 'an item', path: cm && ext[cm[1]] ? ext[cm[1]] : '' });
+          if (cb && cm && /^res:\/\/Items\//i.test(ext[cm[1]] || '') && !ids(t.get(cb, 'storage') || '', 'SubResource').length) rescue.push(rescueEntry(t, ext, cb, ext[cm[1]], file));
           if (d < 6) walk(c, d + 1);
         });
       };
       walk(b.attrs.id, 0);
-      out.push({ file: file, name: Tres.itemName(ext[extId] || '').replace(/ F$/, ''), loc: where[b.attrs.id] || 'somewhere in ' + file, inside: inside });
+      out.push({ file: file, name: Tres.itemName(ext[extId] || '').replace(/ F$/, ''), loc: where[b.attrs.id] || 'somewhere in ' + file, inside: inside, rescue: rescue });
     });
     return out;
+  }
+  /* ---------- Rescue box: base-game items taken out of removed mod furniture wait here (a file in the app data folder, never in the save) ---------- */
+  var rescueFile = '';
+  // every saved property of a slot, as the raw text of the save, so the item can later be written back exactly as it was
+  function rescueEntry(t, ext, b, path, file) {
+    var g = function (k, d) { var v = t.get(b, k); return v === undefined || v === null || v === '' ? d : v; };
+    return { sid: b.attrs.id, file: file, path: path, name: Tres.itemName(path), cond: g('condition', '0'), amt: g('amount', '0'), position: g('position', '0'), mode: g('mode', '1'), zoom: g('zoom', '1'), chamber: g('chamber', 'false'), casing: g('casing', 'false'), state: g('state', '\"\"'),
+      nested: ids(g('nested', '').replace(/^Array\[[^\]]*\]\(/, ''), 'ExtResource').map(function (x) { return ext[x]; }).filter(Boolean) };
+  }
+  async function rescueLoad() {
+    if (!rescueFile || !(await fs.exists(rescueFile))) return [];
+    var o = JSON.parse(await fs.readTextFile(rescueFile));
+    if (!o || !Array.isArray(o.items)) throw new Error('the Rescue box file is not in the expected format');
+    return o.items;
+  }
+  async function rescueSave(items) { await fs.writeTextFile(rescueFile, JSON.stringify({ version: 1, items: items })); }
+  // adds new entries; an item already added from the same source (same file and slot) is not added twice
+  async function rescueAdd(list, tag, srcKey) {
+    var box = await rescueLoad(), have = {}, n = 0, dup = 0, at = new Date().toISOString();
+    box.forEach(function (x) { if (x.key) have[x.key] = 1; });
+    list.forEach(function (x, i) {
+      var key = srcKey + '|' + x.file + '|' + x.sid;
+      if (have[key]) { dup++; return; }
+      have[key] = 1; n++;
+      x.key = key; x.id = 'r' + Date.now().toString(36) + i; x.mod = x.mod || ''; x.from = tag; x.at = at; box.push(x);
+    });
+    if (n) await rescueSave(box);
+    return { n: n, dup: dup };
   }
   // Items whose data is missing, e.g. a loose item with no slot data, or a list that points at a block that is not in the file.
   // (An older Quartermaster could leave the first kind behind when it removed one of several loose items that shared their data.)
@@ -251,12 +280,16 @@
     } catch (e) { try { await fs.remove(dir, { recursive: true }); } catch (_) { /* leave it */ } throw e; }
     return meta;
   }
-  async function cleanTo(src, tag, chosen, fixBroken) {
-    var meta = await snapFrom(src, tag), data = j(j(bakDir, meta.id), 'data'), done = [], left = 0;
+  async function cleanTo(src, tag, chosen, fixBroken, rescueMods, srcKey) {
+    var meta = await snapFrom(src, tag), data = j(j(bakDir, meta.id), 'data'), done = [], left = 0, saved = [], rr = { n: 0, dup: 0 };
+    rescueMods = rescueMods || [];
     var mine = function (b) { return chosen.indexOf(Tres.modOf(b.attrs.path || '')) !== -1; };
     for (var e of await fs.readDir(data)) {
       if (!isTres(e)) continue;
       var p = j(data, e.name), t = Tres.parse(await fs.readTextFile(p)), n = 0, st = 0;
+      t.ext().filter(function (b) { return b.attrs.type === 'Resource' && mine(b) && rescueMods.indexOf(Tres.modOf(b.attrs.path || '')) !== -1; }).forEach(function (b) {
+        modSlots(t, e.name, b.attrs.id).forEach(function (x) { x.rescue.forEach(function (r) { r.mod = Tres.modOf(b.attrs.path || ''); saved.push(r); }); });
+      });
       t.ext().filter(function (b) { return b.attrs.type === 'Resource' && mine(b); }).forEach(function (b) { var r = t.removeItemsUsing(b.attrs.id); n += r.slots.length; st += r.children.length; });
       left += t.ext().filter(mine).length;
       var nb = fixBroken ? repairBroken(t) : 0;
@@ -264,7 +297,8 @@
       var bad = t.validate(); if (bad.length) throw new Error(e.name + ': ' + bad[0]);
       await fs.writeTextFile(p, t.serialize()); done.push(e.name + ' (' + (n ? n + (st ? ' + ' + st + ' stored inside' : '') : '') + (nb ? (n ? ' + ' : '') + nb + ' broken' : '') + ')');
     }
-    return { meta: meta, done: done, left: left };
+    if (saved.length) { try { rr = await rescueAdd(saved, tag, srcKey || 'live'); } catch (err) { try { await fs.remove(j(bakDir, meta.id), { recursive: true }); } catch (_) { /* leave it */ } throw new Error('Could not write the Rescue box, so nothing was changed: ' + niceErr(err)); } }
+    return { meta: meta, done: done, left: left, rescued: rr.n, already: rr.dup };
   }
   async function renderRepair() {
     var v = pageEl('repair'), head = '<h1>Repair</h1><p class="sub">Finds items from mods that are no longer installed and removes them into a cleaned copy. Your live save is never changed.</p>';
@@ -276,6 +310,8 @@
     try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(niceErr(e)) + '<br><br><button data-act="pickgame" class="pri">Choose game folder again</button>' + (RS.src !== 'live' ? ' <button data-act="srclive">Use current save folder</button>' : '') + '</div>'; return; }
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     RS.mods = mods;
+    var box = [], boxErr = '';
+    try { box = await rescueLoad(); } catch (err) { boxErr = String(err && err.message || err); }
     var rows = mods.map(function (m) {
       var groups = {}, order = [], insideAll = [];
       m.list.forEach(function (x) { var k = x.name + '|' + x.loc; if (!groups[k]) { groups[k] = { name: x.name, loc: x.loc, n: 0 }; order.push(k); } groups[k].n++; x.inside.forEach(function (c) { if (c.path) insideAll.push(c.path); }); });
@@ -286,14 +322,16 @@
         (m.stored ? '<div class="minside"><div class="meta">Stored inside them, and deleted with them (' + m.stored + '):</div><div class="qrow">' + itemChips(insideAll.slice(0, 400).filter(function (p, i, a) { return kindOrder.indexOf(p) < 30; })) + (kindOrder.length > 30 ? '<span class="meta">...and ' + (kindOrder.length - 30) + ' more kinds</span>' : '') + '</div></div>' : '') + '</details>' : '';
       return '<div class="mcard"><label class="mh"><input type="checkbox" data-mod="' + esc(m.name) + '"' + (m.found ? '' : ' checked') + '> <b>' + esc(m.name) + '</b><span class="tag ' + (m.found ? '' : 'man') + '">' + (m.found ? 'Installed' : 'Not found') + '</span></label>' +
         '<div class="meta">' + m.items + ' item' + (m.items === 1 ? '' : 's') + ' in ' + Object.keys(m.files).join(', ') + (m.other ? ' &middot; ' + m.other + ' mod data reference' + (m.other === 1 ? '' : 's') + ' (the mod&rsquo;s own data, not items)' : '') + '</div>' +
-        (m.stored ? '<div class="mwarn">Removing these also deletes <b>' + m.stored + ' item' + (m.stored === 1 ? '' : 's') + ' stored inside them</b>, such as things kept in this mod&rsquo;s furniture. Open the list to see them first.</div>' : '') + detail + '</div>';
+        (m.stored ? '<div class="mwarn">Removing these also deletes <b>' + m.stored + ' item' + (m.stored === 1 ? '' : 's') + ' stored inside them</b>, such as things kept in this mod&rsquo;s furniture. Open the list to see them first.</div>' : '') +
+        (m.rescuable ? '<label class="mresc"><input type="checkbox" data-rescue="' + esc(m.name) + '"> Move my items out first <span class="meta">(' + m.rescuable + ' of ' + m.stored + ' go to the Rescue box; items from mods and items that hold other items cannot be saved)</span></label>' : '') + detail + '</div>';
     }).join('');
     var miss = mods.filter(function (m) { return !m.found; }), bk = mods.broken || [], bfiles = {};
     bk.forEach(function (x) { bfiles[x.file] = 1; });
     var brokenCard = bk.length ? '<div class="mcard"><label class="mh"><input type="checkbox" data-broken checked> <b>Broken items</b><span class="tag man">' + bk.length + ' found</span></label><div class="meta">' + bk.length + ' entr' + (bk.length === 1 ? 'y' : 'ies') + ' with missing data in ' + Object.keys(bfiles).join(', ') + '</div><div class="mwarn">These entries point at data that is not in the save, so the game cannot load them properly. Cleaning removes only these entries and touches nothing else.</div><details class="mdet"><summary>Show what will be removed</summary><ul class="mlist">' + bk.slice(0, 40).map(function (x) { return '<li>' + esc(x.label) + '</li>'; }).join('') + (bk.length > 40 ? '<li class="meta">...and ' + (bk.length - 40) + ' more</li>' : '') + '</ul></details></div>' : '';
+    var boxCard = boxErr ? '<div class="mcard rbox"><div class="mh"><b>Rescue box</b><span class="tag man">Problem</span></div><div class="meta">The Rescue box file could not be read (' + esc(boxErr) + '). It was left as it is. Creating a cleaned copy with "Move my items out first" will stop until this is fixed.</div></div>' : box.length ? '<div class="mcard rbox"><div class="mh"><b>Rescue box</b><span class="tag">' + box.length + ' item' + (box.length === 1 ? '' : 's') + '</span></div><div class="meta">Items taken out of removed mod furniture. They are kept inside Quartermaster, not in your save. Putting them into a container by dragging is not built yet.</div><details class="mdet"><summary>Show what is in the box</summary><div class="qrow">' + itemChips(box.map(function (x) { return x.path; })) + '</div></details><div class="rbtn"><button data-act="rbox-clear">Empty the box</button></div></div>' : '';
     var note = (mods.length || bk.length) ? '<p class="meta rsum">' + (mods.length ? (miss.length ? miss.length + ' of ' + mods.length + ' mod' + (mods.length === 1 ? '' : 's') + ' not found in your mods folder (ticked below). ' : 'All mods were found in your mods folder. ') : '') + (bk.length ? '' : 'No broken items found. ') + 'Nothing is removed until you press Create cleaned copy.</p>' : '';
     v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length || bk.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' + note +
-      ((brokenCard + rows) || '<div class="empty">Nothing to repair: no items from mods and no broken items were found in this save.</div>');
+      boxCard + ((brokenCard + rows) || '<div class="empty">Nothing to repair: no items from mods and no broken items were found in this save.</div>');
     fillIcons();
     $('#rsrc').value = RS.src;
   }
@@ -1961,10 +1999,17 @@
         var chosen = Array.prototype.filter.call(document.querySelectorAll('input[data-mod]'), function (c) { return c.checked; }).map(function (c) { return c.dataset.mod; });
         var fixBroken = !!document.querySelector('input[data-broken]:checked');
         if (!chosen.length && !fixBroken) { toast('Tick at least one mod or the broken items to remove'); return; }
-        var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.concat(fixBroken ? ['broken items'] : []).join(', '), chosen, fixBroken);
+        var rescueMods = Array.prototype.filter.call(document.querySelectorAll('input[data-rescue]:checked'), function (c) { return chosen.indexOf(c.dataset.rescue) !== -1; }).map(function (c) { return c.dataset.rescue; });
+        var src = RS.src === 'live' ? saveDir : j(j(bakDir, RS.src), 'data'), r = await cleanTo(src, 'Cleaned: ' + chosen.concat(fixBroken ? ['broken items'] : []).join(', '), chosen, fixBroken, rescueMods, RS.src);
         var rep = (RS.mods || []).filter(function (m) { return chosen.indexOf(m.name) !== -1 && m.items; }).map(function (m) { return '\u2022 ' + m.name + ': ' + m.items + ' item' + (m.items === 1 ? '' : 's') + (m.stored ? ' and ' + m.stored + ' stored inside them' : ''); });
+        var lostN = (RS.mods || []).filter(function (m) { return rescueMods.indexOf(m.name) !== -1; }).reduce(function (n, m) { return n + Math.max(0, m.stored - m.rescuable); }, 0);
         if (fixBroken && (RS.mods.broken || []).length) rep.push('\u2022 Broken items: ' + RS.mods.broken.length + ' entr' + (RS.mods.broken.length === 1 ? 'y' : 'ies'));
-        await ask('Cleaned copy created', (r.done.length ? 'Removed:\n' + (rep.length ? rep.join('\n') : r.done.join(', ')) + '\n\nChanged files: ' + r.done.map(function (x) { return x.replace(/ \(.*$/, ''); }).join(', ') + '.' : 'No item slots needed removing.') + (r.left ? '\n' + r.left + ' reference(s) to these mods remain (not item slots).' : '') + '\n\nIt is saved as "' + r.meta.tag + '" under Snapshots. Restore it when the game is closed. Your current save was not changed.', { ok: 'OK' });
+        await ask('Cleaned copy created', (r.done.length ? 'Removed:\n' + (rep.length ? rep.join('\n') : r.done.join(', ')) + '\n\nChanged files: ' + r.done.map(function (x) { return x.replace(/ \(.*$/, ''); }).join(', ') + '.' : 'No item slots needed removing.') + (rescueMods.length ? '\n\nRescue box: ' + r.rescued + ' item' + (r.rescued === 1 ? '' : 's') + ' saved' + (r.already ? ' (' + r.already + ' were already in the box from this same save)' : '') + (lostN ? '. ' + lostN + ' stored item' + (lostN === 1 ? ' was' : 's were') + ' not saved (items from mods, or items that hold other items) and went with the furniture' : '') + '.' : '') + (r.left ? '\n' + r.left + ' reference(s) to these mods remain (not item slots).' : '') + '\n\nIt is saved as "' + r.meta.tag + '" under Snapshots. Restore it when the game is closed. Your current save was not changed.', { ok: 'OK' });
+      }
+      else if (act === 'rbox-clear') {
+        var rb = await rescueLoad();
+        if (!rb.length || !(await ask('Empty the Rescue box?', rb.length + ' item' + (rb.length === 1 ? '' : 's') + ' will be forgotten. They still exist in the save or snapshot the cleaned copy was made from, but not in the cleaned copy. This cannot be undone.', { ok: 'Empty the box' }))) return;
+        await rescueSave([]); toast('The Rescue box is empty');
       }
       else if (act === 'inv-edit' || act === 'sh-edit') {
         var S1 = act === 'sh-edit' ? SS : IS;
@@ -2056,7 +2101,7 @@
     try {
       var data = await T.path.dataDir(); SEP = data.indexOf('\\') !== -1 ? '\\' : '/';
       saveDir = localStorage.getItem('saveDir') || j(data, 'Road to Vostok');
-      bakDir = j(await T.path.appDataDir(), 'backups');
+      bakDir = j(await T.path.appDataDir(), 'backups'); rescueFile = j(await T.path.appDataDir(), 'rescue-box.json');
       var gd = localStorage.getItem('gameDir') || '';
       if (!gd && localStorage.getItem('modsDir')) { gd = localStorage.getItem('modsDir').replace(/[\\/][^\\/]*$/, ''); localStorage.setItem('gameDir', gd); }
       if (!gd) { try { if (await fs.exists(STEAM_DEFAULT)) { gd = STEAM_DEFAULT; GD_AUTO = true; } } catch (e) {} }

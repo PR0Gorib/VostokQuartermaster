@@ -234,6 +234,8 @@ tr.away{display:none}
 .mwarn{margin-top:8px;padding:7px 10px;border:1px solid var(--amber);border-radius:4px;background:var(--warn-bg);color:var(--warn-text);font-size:12.5px}
 .mdet{margin:8px 0 0;background:transparent;border:0;padding:0}.mdet>summary{color:var(--mut);padding:2px 0}
 .mlist{margin:8px 0 0;padding:0 0 0 4px;list-style:none;display:flex;flex-direction:column;gap:3px;max-height:260px;overflow:auto}
+.mresc{display:flex;gap:8px;align-items:baseline;margin-top:8px;cursor:pointer;font-size:13.5px}.mresc input{flex:none}
+.rbox{border-left:3px solid var(--rust)}.rbox .rbtn{margin-top:8px}
 .minside{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}.minside .qrow{margin-top:6px}
 .rsum{margin:0 0 12px}
 .set input[type=number]{width:90px;padding:6px 8px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:4px;font:inherit}

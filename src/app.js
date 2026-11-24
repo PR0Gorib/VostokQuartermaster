@@ -1801,6 +1801,139 @@
     return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }) + ', ' + d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
   var SNF = localStorage.getItem('snf') || 'all';   // snapshot list filter: all / man / auto
+  /* ---------- compare two saves (read-only): what changed between a snapshot and the current save, or between two snapshots ---------- */
+  var CMP = { open: false, a: '', b: 'live' };
+  async function cmpRead(dir) {
+    var S = { files: {}, ch: null, wo: null, tr: null, sh: {}, ok: false };
+    if (!(await fs.exists(dir))) return S;
+    S.ok = true;
+    for (var e of await fs.readDir(dir)) {
+      if (!isTres(e)) continue;
+      var txt = await fs.readTextFile(j(dir, e.name)); S.files[e.name] = txt;
+      var t; try { t = Tres.parse(txt); } catch (x) { continue; }
+      var m = t.main(); if (!m) continue;
+      if (e.name === 'Character.tres') S.ch = t; else if (e.name === 'World.tres') S.wo = t; else if (e.name === 'Traders.tres') S.tr = t;
+      else if (t.get(m, 'furnitures') !== undefined) S.sh[e.name.replace(/\.tres$/i, '')] = t;
+    }
+    return S;
+  }
+  // the count of one item in one place: stacks count their quantity, weapons count once (their amount is the ammo in them)
+  function cmpAdd(P, place, list) {
+    var pl = P[place] = P[place] || {};
+    list.forEach(function (s) {
+      if (!s) return;
+      var it = pl[s.name] = pl[s.name] || { n: 0, cat: s.cat || '' };
+      it.n += s.cat === 'Weapons' ? 1 : Math.max(1, Math.round(+s.qty || 0));
+    });
+  }
+  function cmpPlaces(S) {
+    var P = {}, furn = {}, saveCur = [CUR_FILE, CUR_CID];
+    CUR_FILE = ''; CUR_CID = '';
+    if (S.ch) {
+      var ct = S.ch, cm = ct.main(), cx = extMap(ct);
+      var inv = function (k) { return ids(inner(ct.get(cm, k) || ''), 'SubResource').map(function (i) { return slotInfo(ct, cx, i); }); };
+      cmpAdd(P, 'Carried inventory', inv('inventory')); cmpAdd(P, 'Equipped', inv('equipment'));
+    }
+    Object.keys(S.sh).forEach(function (sn) {
+      var t = S.sh[sn], m = t.main(), ext = extMap(t), seen = {};
+      ids(t.get(m, 'furnitures'), 'SubResource').forEach(function (id) {
+        var b = t.subById(id); if (!b) return;
+        var im = /ExtResource\("([^"]+)"\)/.exec(t.get(b, 'itemData') || ''), p = im ? (ext[im[1]] || '') : '', base = furBase(p);
+        var nm = String(t.get(b, 'name') || '').replace(/"/g, '') || base.replace(/_F$/, '').replace(/_/g, ' ') || 'Furniture';
+        seen[nm] = (seen[nm] || 0) + 1;
+        var title = sn + ' / ' + nm + (seen[nm] > 1 ? ' #' + seen[nm] : '');
+        furn[sn + ' / ' + nm] = (furn[sn + ' / ' + nm] || 0) + 1;
+        var items = ids(t.get(b, 'storage'), 'SubResource').map(function (i) { return slotInfo(t, ext, i); });
+        if (items.length || CONTAINERS[base]) cmpAdd(P, title, items);
+      });
+      var loose = ids(t.get(m, 'items'), 'SubResource').map(function (id) { var b = t.subById(id); return b ? slotInfo(t, ext, ids(t.get(b, 'slotData'), 'SubResource')[0], id) : null; });
+      if (loose.length) cmpAdd(P, sn + ' / Loose items', loose);
+    });
+    CUR_FILE = saveCur[0]; CUR_CID = saveCur[1];
+    return { items: P, furn: furn };
+  }
+  function cmpStats(A, B) {
+    var out = [], gv = function (t, k) { if (!t) return null; var x = t.get(t.main(), k); return x === undefined ? null : String(x).replace(/^"|"$/g, ''); };
+    var num = function (v) { return v === null || isNaN(parseFloat(v)) ? null : +parseFloat(v).toFixed(1); };
+    METERS.forEach(function (x) { var a = num(gv(A.ch, x[0])), b = num(gv(B.ch, x[0])); if (a !== null && b !== null && a !== b) out.push([x[1], String(a), String(b)]); });
+    CONDS.forEach(function (x) { var a = gv(A.ch, x[0]), b = gv(B.ch, x[0]); if (a !== null && b !== null && a !== b) out.push([x[1], a === 'true' ? 'yes' : 'no', b === 'true' ? 'yes' : 'no']); });
+    var w = function (k, label, f) { var a = gv(A.wo, k), b = gv(B.wo, k); if (a !== null && b !== null && a !== b) out.push([label, f ? f(a) : a, f ? f(b) : b]); };
+    w('day', 'Day'); w('time', 'Time of day', function (v) { return isNaN(parseFloat(v)) ? v : fmtTime(parseFloat(v)); });
+    w('season', 'Season', function (v) { return WORLD.season[v] || v; }); w('difficulty', 'Difficulty', function (v) { return WORLD.difficulty[v] || v; });
+    w('weather', 'Weather'); w('nomadsRemaining', 'Nomads remaining');
+    return out;
+  }
+  function cmpTasks(A, B) {
+    var out = [];
+    if (!A.tr || !B.tr) return out;
+    var info = function (t) {
+      var m = t.main(), ext = extMap(t), r = { done: {}, prog: {} };
+      t.keys(m).forEach(function (k) { if (k !== 'script' && k !== 'taskNotes' && k !== 'grandma' && QUEST_STEMS[k]) r.done[k] = (inner(t.get(m, k)).match(/"(?:[^"\\]|\\.)*"/g) || []).map(function (s) { return s.slice(1, -1); }); });
+      ids(inner(t.get(m, 'taskNotes')), 'ExtResource').forEach(function (i) { var p = ext[i] || '', mm = /Traders\/([^\/]+)\//.exec(p), k = mm ? mm[1].toLowerCase() : 'other'; (r.prog[k] = r.prog[k] || []).push(p.split('/').pop().replace(/\.tres$/i, '').replace(/^\d+_/, '').replace(/_/g, ' ')); });
+      return r;
+    }, a = info(A.tr), b = info(B.tr), keys = {};
+    Object.keys(a.done).concat(Object.keys(b.done), Object.keys(a.prog), Object.keys(b.prog)).forEach(function (k) { keys[k] = 1; });
+    Object.keys(keys).forEach(function (k) {
+      var nm = TRADERS[k] ? TRADERS[k][0] : k.charAt(0).toUpperCase() + k.slice(1), da = a.done[k] || [], db = b.done[k] || [], pa = a.prog[k] || [], pb = b.prog[k] || [];
+      db.filter(function (x) { return da.indexOf(x) === -1; }).forEach(function (x) { out.push(nm + ': completed ' + x); });
+      da.filter(function (x) { return db.indexOf(x) === -1; }).forEach(function (x) { out.push(nm + ': ' + x + ' is no longer completed'); });
+      pb.filter(function (x) { return pa.indexOf(x) === -1; }).forEach(function (x) { out.push(nm + ': started ' + x); });
+      pa.filter(function (x) { return pb.indexOf(x) === -1 && db.indexOf(x) === -1; }).forEach(function (x) { out.push(nm + ': ' + x + ' is no longer in progress'); });
+    });
+    return out;
+  }
+  function cmpItemLines(a, b) {
+    var out = [], names = {};
+    Object.keys(a || {}).concat(Object.keys(b || {})).forEach(function (n) { names[n] = 1; });
+    Object.keys(names).sort(function (x, y) { return (((b && b[x]) || (a && a[x])).cat || '').localeCompare(((b && b[y]) || (a && a[y])).cat || '') || x.localeCompare(y); }).forEach(function (n) {
+      var x = (a && a[n] && a[n].n) || 0, y = (b && b[n] && b[n].n) || 0;
+      if (x !== y) out.push({ name: n, from: x, to: y });
+    });
+    return out;
+  }
+  async function cmpHtml(ida, idb, la, lb) {
+    var dir = function (id) { return id === 'live' ? saveDir : j(j(bakDir, id), 'data'); };
+    var A = await cmpRead(dir(ida)), B = await cmpRead(dir(idb));
+    if (!A.ok || !B.ok) return '<div class="meta bad">One of the two saves could not be found.</div>';
+    var pa = cmpPlaces(A), pb = cmpPlaces(B), total = 0, html = '';
+    var stats = cmpStats(A, B), tasks = cmpTasks(A, B);
+    var li = function (a, b, c) { return '<li><b>' + esc(a) + '</b> ' + esc(b) + (c ? ' <span class="meta">' + esc(c) + '</span>' : '') + '</li>'; };
+    if (stats.length) { total += stats.length; html += '<h3>Character and world</h3><ul class="cl">' + stats.map(function (s) { return li(s[0], s[1] + ' \u2192 ' + s[2]); }).join('') + '</ul>'; }
+    var places = {}; Object.keys(pa.items).concat(Object.keys(pb.items)).forEach(function (p) { places[p] = 1; });
+    var blocks = Object.keys(places).sort().map(function (p) {
+      var lines = cmpItemLines(pa.items[p], pb.items[p]); if (!lines.length) return '';
+      total += lines.length;
+      var tag = !pa.items[p] ? ' <span class="tag man">new container</span>' : !pb.items[p] ? ' <span class="tag">gone</span>' : '';
+      return '<details' + (lines.length <= 12 ? ' open' : '') + '><summary>' + esc(p) + tag + ' <span class="meta">&middot; ' + lines.length + ' item' + (lines.length === 1 ? '' : 's') + ' changed</span></summary><ul class="cl">' +
+        lines.map(function (x) { var d = x.to - x.from; return li(x.name, (x.from ? x.from : 'none') + ' \u2192 ' + (x.to ? x.to : 'none'), (d > 0 ? '+' : '') + d); }).join('') + '</ul></details>';
+    }).filter(Boolean);
+    if (blocks.length) html += '<h3>Items</h3>' + blocks.join('');
+    var fl = [], fk = {}; Object.keys(pa.furn).concat(Object.keys(pb.furn)).forEach(function (k) { fk[k] = 1; });
+    Object.keys(fk).sort().forEach(function (k) { var x = pa.furn[k] || 0, y = pb.furn[k] || 0; if (x !== y) fl.push(li(k, (x ? x : 'none') + ' \u2192 ' + (y ? y : 'none'), (y - x > 0 ? '+' : '') + (y - x))); });
+    var sa = Object.keys(A.sh), sb = Object.keys(B.sh);
+    sb.filter(function (n) { return sa.indexOf(n) === -1; }).forEach(function (n) { fl.push('<li><b>' + esc(n) + '</b> shelter is new</li>'); });
+    sa.filter(function (n) { return sb.indexOf(n) === -1; }).forEach(function (n) { fl.push('<li><b>' + esc(n) + '</b> shelter is gone</li>'); });
+    if (fl.length) { total += fl.length; html += '<h3>Furniture and shelters</h3><ul class="cl">' + fl.join('') + '</ul>'; }
+    if (tasks.length) { total += tasks.length; html += '<h3>Trader tasks</h3><ul class="cl">' + tasks.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>'; }
+    var names = {}; Object.keys(A.files).concat(Object.keys(B.files)).forEach(function (n) { names[n] = 1; });
+    var differ = Object.keys(names).filter(function (n) { return A.files[n] !== B.files[n]; }).length;
+    var head = '<p class="meta">Changes from <b>' + esc(la) + '</b> to <b>' + esc(lb) + '</b>: ' + (total ? total + ' listed' : 'nothing listed') + '. Compared: character, world, items in containers and inventory, furniture, trader tasks. Not compared: where items sit in a grid, attachments, and what is stored inside other items.</p>';
+    if (!total) return head + '<div class="empty">' + (differ ? 'The files differ (' + differ + ' of ' + Object.keys(names).length + '), but only in details this comparison does not list, such as item positions or timestamps.' : 'The two saves are identical.') + '</div>';
+    return head + html;
+  }
+  function cmpLabel(l, id) { if (id === 'live') return 'the current save'; var m = l.filter(function (x) { return x.id === id; })[0]; return m ? (m.tag || 'Snapshot') + ' (' + ago(m.created) + ')' : id; }
+  function cmpShell(l) {
+    var opt = function (sel, live) { return (live ? '<option value="live"' + (sel === 'live' ? ' selected' : '') + '>Current save folder</option>' : '') + l.map(function (m) { return '<option value="' + esc(m.id) + '"' + (sel === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join(''); };
+    return '<div class="cmph"><b>Compare</b><span class="tag man">Feedback needed</span>' + RL + '<span class="sp"></span><button data-act="cmp-close">Close</button></div>' +
+      '<div class="cmpsel"><label>From <select id="cmpa">' + opt(CMP.a, true) + '</select></label><button data-act="cmp-swap" title="Swap the two">\u21c4</button><label>To <select id="cmpb">' + opt(CMP.b, true) + '</select></label><button data-act="cmp-go" class="pri">Compare</button></div><div id="cmpout" class="cmpout"></div>';
+  }
+  async function fillCmp(l) {
+    var out = document.getElementById('cmpout'); if (!out) return;
+    if (CMP.a === CMP.b) { out.innerHTML = '<div class="meta">Pick two different saves to compare.</div>'; return; }
+    out.innerHTML = '<div class="meta">Comparing...</div>';
+    try { var h = await cmpHtml(CMP.a, CMP.b, cmpLabel(l, CMP.a), cmpLabel(l, CMP.b)); var o2 = document.getElementById('cmpout'); if (o2) o2.innerHTML = h; }
+    catch (err) { var o3 = document.getElementById('cmpout'); if (o3) o3.innerHTML = '<div class="empty bad">Could not compare: ' + esc(niceErr(err)) + '</div>'; }
+  }
   async function renderSnapshots() {
     var ok = await fs.exists(saveDir), v = pageEl('snapshots'), lw = ok ? await worldInfo(saveDir) : null;
     var head = '<h1>Snapshots</h1><p class="sub">' + esc(saveDir) + ' &middot; ' + (ok ? '<span class="good">found</span>' : '<span class="bad">not found</span>') + (lw ? ' &middot; ' + fmtWorld(lw) + (diffBadge(lw.difficulty) ? ' ' + diffBadge(lw.difficulty) : '') : '') + '</p>';
@@ -1811,7 +1944,7 @@
       var exact = new Date(m.created).toLocaleString();
       return '<div class="snap' + (m.auto ? '' : ' man') + '"><div><h4>' + esc(m.tag || 'Snapshot') + '<span class="tag ' + (m.auto ? '' : 'man') + '">' + (m.auto ? 'Auto' : 'Manual') + '</span></h4>' +
         (m.world ? '<div class="meta wi">' + fmtWorld(m.world) + '</div>' : '') + '<div class="meta"><span title="' + esc(exact) + '">' + esc(ago(m.created)) + '</span> &middot; ' + m.files + ' files &middot; ' + fmtSize(m.size) + '</div></div>' +
-        '<div class="acts" data-id="' + esc(m.id) + '"><button data-act="restore">Restore</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
+        '<div class="acts" data-id="' + esc(m.id) + '"><button data-act="restore">Restore</button><button data-act="cmp" title="See what changed between this snapshot and your current save">Compare</button><button data-act="rename">Rename</button><button data-act="del" class="dng">Delete</button></div></div>';
     };
     var man = l.filter(function (m) { return !m.auto; }), auto = l.filter(function (m) { return m.auto; });
     var autoN = auto.filter(function (m) { return m.tag !== 'Before restore'; }).length;
@@ -1823,6 +1956,13 @@
       (l.length ? (man.length ? '<div class="mang"><h3>Manual snapshots (' + man.length + ')</h3>' + man.map(card).join('') + '</div>' : '<div class="mang meta nomanual">No manual snapshots yet. Use Back up now before you try something risky.</div>') +
         (auto.length ? '<details class="autog"' + (autoOpen ? ' open' : '') + '><summary>Automatic backups (' + auto.length + ')</summary>' + auto.map(card).join('') + '</details>' : '')
         : '<div class="empty">No snapshots yet. Back up now, or play and let auto backup do it.</div>');
+    if (CMP.open && l.length) {
+      if (CMP.a !== 'live' && !l.some(function (m) { return m.id === CMP.a; })) CMP.a = l[0].id;
+      if (CMP.b !== 'live' && !l.some(function (m) { return m.id === CMP.b; })) CMP.b = 'live';
+      var cb = document.createElement('div'); cb.id = 'cmpbox'; cb.className = 'cmpbox'; cb.innerHTML = cmpShell(l);
+      var cbar = v.querySelector('.bar'); if (cbar) cbar.after(cb); else v.appendChild(cb);
+      fillCmp(l);
+    }
   }
 
   var THEME_NAMES = { dark: 'Dark', light: 'Light', system: 'System' };
@@ -2016,6 +2156,10 @@
     var act = b.dataset.act, id = b.parentElement.dataset.id;
     try {
       if (act === 'backup') { var tag = await ask('Back up now', 'Add a tag to find it later (optional).', { input: true, ok: 'Back up' }); if (tag === null) return; await snap(tag, false); toast('Snapshot saved'); }
+      else if (act === 'cmp') { CMP.open = true; CMP.a = id; if (CMP.b === id) CMP.b = 'live'; }
+      else if (act === 'cmp-go') { CMP.a = $('#cmpa').value; CMP.b = $('#cmpb').value; }
+      else if (act === 'cmp-swap') { var csw = $('#cmpa').value; CMP.a = $('#cmpb').value; CMP.b = csw; }
+      else if (act === 'cmp-close') { CMP.open = false; }
       else if (act === 'restore') { if (!(await ask('Restore this snapshot?', 'Close Road to Vostok first. Your current save is backed up automatically, then replaced with this snapshot.', { ok: 'Restore' }))) return; await restore(id); toast('Snapshot restored'); }
       else if (act === 'rename') { var m = (await list()).find(function (x) { return x.id === id; }); var t = await ask('Rename snapshot', '', { input: m.tag || true, ok: 'Save' }); if (t === null) return;
         var c = cleanName(t), nid = id;

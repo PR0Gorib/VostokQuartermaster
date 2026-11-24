@@ -216,6 +216,12 @@ tr.away td{opacity:.45;text-decoration:line-through}
 .hand .hbox{flex:none;width:64px;height:64px;display:flex;align-items:center;justify-content:center;background:#0d0e10;border:1px solid var(--line);border-radius:6px;cursor:grab;touch-action:none;user-select:none}
 .hand .hbox img{max-width:56px;max-height:56px;object-fit:contain;pointer-events:none;-webkit-user-drag:none}
 .hand .hbox:hover{border-color:var(--text)}.hand button{width:100%}
+.rbtray{border:1px solid var(--line);border-left:3px solid var(--rust);border-radius:6px;padding:8px 10px;margin-bottom:10px;background:var(--panel)}
+.rbtray .hh{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin-bottom:6px;display:flex;align-items:center;gap:6px}.rbtray .hh .tag{margin-left:0}
+.rbtray .rbl{display:flex;flex-wrap:wrap;gap:6px;max-height:210px;overflow:auto;margin-bottom:8px}
+.rbtray .rbi{width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:#0d0e10;border:1px solid var(--line);border-radius:6px;cursor:grab;touch-action:none;user-select:none}
+.rbtray .rbi img{max-width:42px;max-height:42px;object-fit:contain;pointer-events:none;-webkit-user-drag:none}
+.rbtray .rbi:hover{border-color:var(--text)}.rbtray .rbi.unk{opacity:.45;cursor:not-allowed}
 .hand.float{position:fixed;right:24px;bottom:72px;width:300px;z-index:60;box-shadow:0 8px 24px #000a}
 tr.er.held td{background:var(--warm-bg);outline:1px dashed var(--mut);outline-offset:-1px}
 /* a hidden grid item must really be gone (the display:flex of .gi used to override the hidden attribute); a moved-away row leaves the list */
@@ -246,7 +252,7 @@ button.rl{background:none;border:0;padding:0 4px;color:var(--mut);text-decoratio
   --deep:#e4e4e0;--hover:#ebebe7;--row-line:#e3e3df;--ok-bg:#dde8f2;--bad-bg:#f5dadc;--warm-bg:#f3e6e7;--flash-bg:#d8e5f1;--wrow-bg:#eceae6;--chip-neu:#e4e5e6;--seg-on:#d6d6d1;--seg-done:#c9dcec;--seg-prog:#f1e2b6;
   --amber:#8a6410;--rust-text:#8f2a31;--warn-bg:#fbf1d6;--warn-text:#6e5210;--iron-bg:#9b2a30;--danger:#c2262f;--danger-text:#b3202a}
 /* the dark look inside item grids, slots and portraits, whatever the theme */
-.cgrid,.tb,.hand .hbox,.gi.ghost{--bg:#121314;--panel:#1b1d20;--line:#2d3034;--text:#e9e7e2;--mut:#9a9ea4;--ok:#6f9ec4;--rust:#a83a40;--rust-text:#e9e7e2;--amber:#d4ae55;--deep:#0d0e10;--ok-bg:#1a2430;--bad-bg:#40272a;--danger:#ef5b62;--danger-text:#ff9296;color:#e9e7e2}
+.cgrid,.tb,.hand .hbox,.rbtray .rbi,.gi.ghost{--bg:#121314;--panel:#1b1d20;--line:#2d3034;--text:#e9e7e2;--mut:#9a9ea4;--ok:#6f9ec4;--rust:#a83a40;--rust-text:#e9e7e2;--amber:#d4ae55;--deep:#0d0e10;--ok-bg:#1a2430;--bad-bg:#40272a;--danger:#ef5b62;--danger-text:#ff9296;color:#e9e7e2}
 :root[data-theme="light"] .wbuild{--bg:#121314;--panel:#1b1d20;--line:#2d3034;--text:#e9e7e2;--mut:#9a9ea4;--ok:#6f9ec4;--rust:#a83a40;--rust-text:#e9e7e2;--deep:#0d0e10;--danger:#ef5b62;--danger-text:#ff9296;color:#e9e7e2;background:#0d0e10;border-radius:8px}
 :root[data-theme="light"] .ib,:root[data-theme="light"] .ti{background:#0d0e10;border-radius:4px;--mut:#9a9ea4}
 .tag.dk{background:#6b4a14;border-color:#d4ae55;color:#fff;font-weight:700;letter-spacing:.05em;text-transform:uppercase}

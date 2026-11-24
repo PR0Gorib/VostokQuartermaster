@@ -224,6 +224,57 @@
     return o.items;
   }
   async function rescueSave(items) { await fs.writeTextFile(rescueFile, JSON.stringify({ version: 1, items: items })); }
+  // the box as shown on the Inventory and Shelter pages: loaded when one of them is in Edit mode, forgotten whenever the box or the pages change
+  var BOXMEM = null, BOXLOAD = false, BOXSZ = {};
+  async function boxSize(path) {
+    try { await iconPack(); var d = await Pck.itemDef(IC.pack, path); if (d && d.ok && d.size) return d.size; } catch (e) { /* use the entered size below */ }
+    return MODSZ[path] || null;
+  }
+  async function loadBoxMem() {
+    if (BOXLOAD) return; BOXLOAD = true;
+    var b = []; try { b = await rescueLoad(); } catch (e) { b = []; }
+    for (var x of b) if (!(x.path in BOXSZ)) BOXSZ[x.path] = await boxSize(x.path);
+    BOXMEM = b; BOXLOAD = false; renderTray(); setTimeout(fillIcons, 0);
+  }
+  // the Rescue box card at the top of the inspector, only while the page is in Edit mode; items already dropped on a grid are hidden from it
+  function renderTray() {
+    document.querySelectorAll('#view > section.pg').forEach(function (sec) {
+      var insp = sec.querySelector('.insp'), t = sec.querySelector('.rbtray'), on = insp && !sec.classList.contains('lv') && sec.querySelector('.addbar[data-cid]');
+      if (!on) { if (t) t.remove(); return; }
+      if (BOXMEM === null) { if (t) t.remove(); loadBoxMem(); return; }
+      var used = {}; document.querySelectorAll('#view tr.ea[data-bid]').forEach(function (r) { used[r.dataset.bid] = 1; });
+      var list = BOXMEM.filter(function (x) { return !used[x.id]; }), sig = list.map(function (x) { return x.id; }).join(',');
+      if (!list.length) { if (t) t.remove(); return; }
+      if (t && t.dataset.sig === sig && t.parentNode === insp) return;
+      if (t) t.remove();
+      t = document.createElement('div'); t.className = 'rbtray'; t.dataset.sig = sig;
+      t.innerHTML = '<div class="hh">Rescue box' + EXTAG + '</div><div class="rbl">' + list.map(function (x) {
+        var ok = !!BOXSZ[x.path];
+        return '<span class="rbi' + (ok ? '' : ' unk') + '" data-bid="' + esc(x.id) + '" title="' + esc(x.name + (ok ? ' - drag onto a container' : ' - size unknown, cannot be placed')) + '"><img data-ic="' + esc(x.path) + '" alt="" hidden>' + glyph(catOf(x.path)) + '</span>';
+      }).join('') + '</div><div class="meta">Drag an item onto a container or the inventory grid. It leaves the box when you create the edited copy.</div>';
+      var h = insp.querySelector('.hand'); insp.insertBefore(t, h ? h.nextSibling : insp.firstChild);
+      setTimeout(fillIcons, 0);
+    });
+  }
+  function boxStartDrag(ev, node) {
+    var e = (BOXMEM || []).filter(function (x) { return x.id === node.dataset.bid; })[0], base = e && BOXSZ[e.path];
+    if (!e) return;
+    if (!base) { toast('The size of this item in a grid is unknown, so it cannot be placed.'); return; }
+    DRAG = { cap: ev.target, el: null, box: e, gsrc: node, row0: null, srcGrid: null, hand: true, id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, base: base, rot: false, started: false, valid: false, col: 0, row: 0, tgt: null, prev: null, ghost: null, lx: ev.clientX, ly: ev.clientY, gx: base[0] * CELLPX / 2, gy: base[1] * CELLPX / 2 };
+  }
+  // dropping an item from the box: a new row like Add item, with every saved property of the item carried along (written when the edited copy is created)
+  function boxPlace(d) {
+    var grid = d.tgt, bar = gBar(grid), tb = bar && bar.parentNode.querySelector('table.itm tbody'), e = d.box;
+    if (!bar || !tb) { toast('Turn on Edit mode on that page to drop items there.'); return; }
+    var w = d.rot ? d.base[1] : d.base[0], h = d.rot ? d.base[0] : d.base[1];
+    if (!gFits(grid, null, d.col, d.row, w, h)) { toast('It does not fit there.'); return; }
+    addNewRow(bar, tb, grid, e.path, { size: d.base, showCondition: false }, { col: d.col, row: d.row, rot: d.rot }, +e.amt || 0);
+    var nr = tb.querySelector('tr.ea[data-aid="a' + AID + '"]'), ne = grid.querySelector('.gi[data-aid="a' + AID + '"]');
+    if (!nr || !ne) { toast('Could not place the item there.'); return; }
+    nr.dataset.bid = e.id; nr.dataset.box = JSON.stringify(e); nr.dataset.cond = e.cond; nr.dataset.amt = e.amt; nr.dataset.fromName = 'the Rescue box';
+    var tg = nr.querySelector('.tag.man'); if (tg) tg.textContent = 'FROM BOX';
+    schedPending(); selectItem(ne, nr);
+  }
   // adds new entries; an item already added from the same source (same file and slot) is not added twice
   async function rescueAdd(list, tag, srcKey) {
     var box = await rescueLoad(), have = {}, n = 0, dup = 0, at = new Date().toISOString();
@@ -310,6 +361,7 @@
     try { mods = await scanDir(srcDir); } catch (e) { v.innerHTML = head + '<div class="empty bad">Could not read the folders: ' + esc(niceErr(e)) + '<br><br><button data-act="pickgame" class="pri">Choose game folder again</button>' + (RS.src !== 'live' ? ' <button data-act="srclive">Use current save folder</button>' : '') + '</div>'; return; }
     var opts = '<option value="live">Current save folder</option>' + l.map(function (m) { return '<option value="' + esc(m.id) + '"' + (RS.src === m.id ? ' selected' : '') + '>' + esc((m.tag || 'Snapshot') + ' - ' + new Date(m.created).toLocaleString()) + '</option>'; }).join('');
     RS.mods = mods;
+    BOXMEM = null;
     var box = [], boxErr = '';
     try { box = await rescueLoad(); } catch (err) { boxErr = String(err && err.message || err); }
     var rows = mods.map(function (m) {
@@ -328,7 +380,7 @@
     var miss = mods.filter(function (m) { return !m.found; }), bk = mods.broken || [], bfiles = {};
     bk.forEach(function (x) { bfiles[x.file] = 1; });
     var brokenCard = bk.length ? '<div class="mcard"><label class="mh"><input type="checkbox" data-broken checked> <b>Broken items</b><span class="tag man">' + bk.length + ' found</span></label><div class="meta">' + bk.length + ' entr' + (bk.length === 1 ? 'y' : 'ies') + ' with missing data in ' + Object.keys(bfiles).join(', ') + '</div><div class="mwarn">These entries point at data that is not in the save, so the game cannot load them properly. Cleaning removes only these entries and touches nothing else.</div><details class="mdet"><summary>Show what will be removed</summary><ul class="mlist">' + bk.slice(0, 40).map(function (x) { return '<li>' + esc(x.label) + '</li>'; }).join('') + (bk.length > 40 ? '<li class="meta">...and ' + (bk.length - 40) + ' more</li>' : '') + '</ul></details></div>' : '';
-    var boxCard = boxErr ? '<div class="mcard rbox"><div class="mh"><b>Rescue box</b><span class="tag man">Problem</span></div><div class="meta">The Rescue box file could not be read (' + esc(boxErr) + '). It was left as it is. Creating a cleaned copy with "Move my items out first" will stop until this is fixed.</div></div>' : box.length ? '<div class="mcard rbox"><div class="mh"><b>Rescue box</b><span class="tag">' + box.length + ' item' + (box.length === 1 ? '' : 's') + '</span>' + EXTAG + RL + '</div><div class="meta">Items taken out of removed mod furniture. They are kept inside Quartermaster, not in your save. Putting them into a container by dragging is not built yet.</div><details class="mdet"><summary>Show what is in the box</summary><div class="qrow">' + itemChips(box.map(function (x) { return x.path; })) + '</div></details><div class="rbtn"><button data-act="rbox-clear">Empty the box</button></div></div>' : '';
+    var boxCard = boxErr ? '<div class="mcard rbox"><div class="mh"><b>Rescue box</b><span class="tag man">Problem</span></div><div class="meta">The Rescue box file could not be read (' + esc(boxErr) + '). It was left as it is. Creating a cleaned copy with "Move my items out first" will stop until this is fixed.</div></div>' : box.length ? '<div class="mcard rbox"><div class="mh"><b>Rescue box</b><span class="tag">' + box.length + ' item' + (box.length === 1 ? '' : 's') + '</span>' + EXTAG + RL + '</div><div class="meta">Items taken out of removed mod furniture. They are kept inside Quartermaster, not in your save. To put them back, open Inventory or Shelter, turn on Edit mode and drag them from the Rescue box card onto a container.</div><details class="mdet"><summary>Show what is in the box</summary><div class="qrow">' + itemChips(box.map(function (x) { return x.path; })) + '</div></details><div class="rbtn"><button data-act="rbox-clear">Empty the box</button></div></div>' : '';
     var note = (mods.length || bk.length) ? '<p class="meta rsum">' + (mods.length ? (miss.length ? miss.length + ' of ' + mods.length + ' mod' + (mods.length === 1 ? '' : 's') + ' not found in your mods folder (ticked below). ' : 'All mods were found in your mods folder. ') : '') + (bk.length ? '' : 'No broken items found. ') + 'Nothing is removed until you press Create cleaned copy.</p>' : '';
     v.innerHTML = head + '<div class="bar"><select id="rsrc">' + opts + '</select><span class="sp"></span><button data-act="clean" class="pri"' + (mods.length || bk.length ? '' : ' disabled') + '>Create cleaned copy</button></div>' + note +
       boxCard + ((brokenCard + rows) || '<div class="empty">Nothing to repair: no items from mods and no broken items were found in this save.</div>');
@@ -618,7 +670,7 @@
     if (!m || +m[1] < 1 || +m[2] < 1 || +m[1] > 12 || +m[2] > 16) return null;
     MODSZ[path] = [+m[1], +m[2]]; saveModSizes(); return MODSZ[path];
   }
-  var invLine = function (e) { return e.weapon ? weaponLine(e) : e.add && e.from ? e.name + ': moved from ' + e.fromName + ' to ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + (e.rot ? ', turned' : '') + ')' : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.att && e.att.length ? ', with ' + e.att.map(function (a) { return Tres.itemName(a); }).join(', ') : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + [e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '', e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : '', e.gx !== undefined ? 'moved from column ' + (e.fromGx / CELL + 1) + ', row ' + (e.fromGy / CELL + 1) + ' to column ' + (e.gx / CELL + 1) + ', row ' + (e.gy / CELL + 1) + (e.rot !== e.fromRot ? (e.rot ? ', turned' : ', turned back') : '') : ''].filter(Boolean).join(', '); };
+  var invLine = function (e) { return e.weapon ? weaponLine(e) : e.add && e.boxId ? e.name + ': from the Rescue box to ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + (e.rot ? ', turned' : '') + ')' : e.add && e.from ? e.name + ': moved from ' + e.fromName + ' to ' + e.cname + ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + (e.rot ? ', turned' : '') + ')' : e.add ? '+ ' + e.name + (e.amount > 1 ? ' \u00d7' + e.amount : '') + ' \u2192 ' + e.cname + (e.slot ? ' (' + e.slot + ' slot' + (e.att && e.att.length ? ', with ' + e.att.map(function (a) { return Tres.itemName(a); }).join(', ') : '') + ')' : ' (column ' + (e.col + 1) + ', row ' + (e.row + 1) + ')') : e.remove ? e.name + ': remove' : e.name + ': ' + [e.cond !== undefined ? 'condition ' + e.condFrom + ' \u2192 ' + e.cond : '', e.amt !== undefined ? 'quantity ' + e.amtFrom + ' \u2192 ' + e.amt : '', e.gx !== undefined ? 'moved from column ' + (e.fromGx / CELL + 1) + ', row ' + (e.fromGy / CELL + 1) + ' to column ' + (e.gx / CELL + 1) + ', row ' + (e.gy / CELL + 1) + (e.rot !== e.fromRot ? (e.rot ? ', turned' : ', turned back') : '') : ''].filter(Boolean).join(', '); };
   // plans every page's pending changes on top of each other (so two pages can change the same file) and writes ONE edited copy
   async function createBatch() {
     var ie = collectInvEdits().concat(collectAdds(), collectWeaponEdits()), qe = collectQuestEdits(), ce = collectEdits();
@@ -653,8 +705,10 @@
     var tag = 'Edited ' + parts.join(' + ') + ': ' + total + ' change' + (total === 1 ? '' : 's');
     var meta = await snapFrom(src, tag), data = j(j(bakDir, meta.id), 'data');
     for (var wf of Object.keys(texts)) await fs.writeTextFile(j(data, wf), texts[wf]);
+    var usedBox = ie.filter(function (e) { return e.boxId; }).map(function (e) { return e.boxId; }), boxNote = '';
+    if (usedBox.length) { try { var bl = await rescueLoad(); await rescueSave(bl.filter(function (x) { return usedBox.indexOf(x.id) === -1; })); } catch (err) { boxNote = '\n\nThe Rescue box could not be updated (' + niceErr(err) + '), so those items are still listed in it.'; } }
     resetAllPages();
-    await ask('Edited copy created', 'Find it under Snapshots (tagged "' + tag + '") and restore it when the game is closed. Your original is unchanged.', { ok: 'OK' });
+    await ask('Edited copy created', 'Find it under Snapshots (tagged "' + tag + '") and restore it when the game is closed. Your original is unchanged.' + boxNote, { ok: 'OK' });
   }
   function warnSettingHtml() {
     return '<div class="set"><h4>Unsaved changes</h4><label class="ab-check"><input type="checkbox" id="warnunsaved"' + (WARN ? ' checked' : '') + '> Warn me when I leave a page or close the app with changes that are not in an edited copy yet</label></div>';
@@ -837,7 +891,7 @@
     return null;
   }
   function gGhost(d) {
-    if (!d.ghost) { d.ghost = document.createElement('div'); d.ghost.className = 'gi ghost'; d.ghost.innerHTML = (d.el || document.querySelector('.hand .hbox')).innerHTML; document.body.appendChild(d.ghost); }
+    if (!d.ghost) { d.ghost = document.createElement('div'); d.ghost.className = 'gi ghost'; d.ghost.innerHTML = (d.el || d.gsrc || document.querySelector('.hand .hbox')).innerHTML; document.body.appendChild(d.ghost); }
     placeItem(d.ghost, 0, 0, d.base, d.rot);
     var w = parseFloat(d.ghost.style.width), h = parseFloat(d.ghost.style.height);
     d.gx = Math.min(d.gx, w - 2); d.gy = Math.min(d.gy, h - 2);
@@ -864,6 +918,7 @@
     if (!d.started || !commit) return;
     if (!d.tgt) return;   // dropped on nothing: just put it down again
     if (!d.valid) { toast(d.tgt !== d.srcGrid && !gBar(d.tgt) ? 'Turn on Edit mode on that page to drop items there.' : 'It does not fit there.'); return; }
+    if (d.box) { boxPlace(d); return; }   // an item from the Rescue box
     if (!d.el) { xMove(null, d.row0, d.tgt, d.col, d.row, d.rot, d.base).then(function (ok) { if (ok) releaseHand(); }); return; }   // a loose item
     if (d.tgt === d.srcGrid) { if (gMove(d.el, d.col, d.row, d.rot) && d.hand) releaseHand(); return; }
     xMove(d.el, d.row0, d.tgt, d.col, d.row, d.rot).then(function (ok) { if (ok && d.hand) releaseHand(); });
@@ -875,9 +930,10 @@
   }
   // the browser's own image dragging would grab the icon and cancel our drag (it only lets go on a double click), so switch it off on grids
   document.addEventListener('click', function (ev) { var sm = ev.target.closest && ev.target.closest('.autog > summary'); if (sm) setTimeout(function () { localStorage.setItem('snap_auto_open', sm.parentNode.open ? '1' : '0'); }, 0); });
-  document.addEventListener('dragstart', function (ev) { if (ev.target.closest && ev.target.closest('.cgrid, .hand')) ev.preventDefault(); });
+  document.addEventListener('dragstart', function (ev) { if (ev.target.closest && ev.target.closest('.cgrid, .hand, .rbtray')) ev.preventDefault(); });
   document.addEventListener('pointerdown', function (ev) {
     if (ev.button !== 0 || DRAG || !ev.target.closest) return;
+    var rb = ev.target.closest('.rbtray .rbi'); if (rb) { boxStartDrag(ev, rb); return; }
     var hb = ev.target.closest('.hbox');
     if (hb && HELD && (HELD.el || HELD.row).isConnected) { gStartDrag(ev, HELD.el, HELD.row, true); return; }
     var el = ev.target.closest('#view .cgrid:not(.eqgrid) .gi'); if (!el || el.hidden) return;
@@ -998,7 +1054,7 @@
       h.classList.toggle('float', host === sec); host.insertBefore(h, host.firstChild);
     });
   }
-  new MutationObserver(function () { if (HELD) renderHand(); }).observe($('#view'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  new MutationObserver(function () { if (HELD) renderHand(); renderTray(); }).observe($('#view'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 
   // the "add an item" bar above a grid (shelter containers and the carried inventory)
   function addBarHtml(file, cid, W, H, cname) {
@@ -1177,7 +1233,7 @@
     placeRow(tb, '<tr class="ea" data-aid="' + aid + '" data-file="' + esc(bar.dataset.file) + '" data-cid="' + esc(bar.dataset.cid) + '" data-cname="' + esc(bar.dataset.cname) + '" data-path="' + esc(path) + '" data-name="' + esc(nm) + '" data-gx="' + slot.col * CELL + '" data-gy="' + slot.row * CELL + '" data-rot="' + (slot.rot ? 1 : 0) + '" data-amt="' + amount + '" data-cond="' + cond + '" data-cat="' + esc(cat) + '" data-q="' + esc(nm.toLowerCase()) + '"><td><span class="ib"><img class="ico" data-ic="' + esc(path) + '" alt="" hidden>' + glyph(cat) + '</span>' + esc(nm) + ' <span class="tag man">NEW</span><div class="meta">column ' + (slot.col + 1) + ', row ' + (slot.row + 1) + (slot.rot ? ', rotated' : '') + '</div></td><td class="meta">' + esc(cat) + '</td><td>' + (def.showCondition ? cond + '%' : '\u2013') + '</td><td>' + (def.showAmount ? amount : '') + '</td><td><button data-act="sh-cancel">Cancel</button></td></tr>');
   }
   function collectAdds(sc) {
-    return Array.prototype.slice.call(document.querySelectorAll((sc || '#view') + ' tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', att: (d.att || '').split('|').filter(Boolean), from: d.fromSid ? { file: d.fromFile, sid: d.fromSid } : null, fromName: d.fromName || '' }; });
+    return Array.prototype.slice.call(document.querySelectorAll((sc || '#view') + ' tr.ea')).map(function (tr) { var d = tr.dataset; return { add: true, file: d.file, cid: d.cid, cname: d.cname, path: d.path, name: d.name, amount: +d.amt, cond: +d.cond, col: +d.gx / CELL, row: +d.gy / CELL, rot: d.rot === '1', slot: d.slot || '', att: (d.att || '').split('|').filter(Boolean), from: d.fromSid ? { file: d.fromFile, sid: d.fromSid } : null, fromName: d.fromName || '', boxId: d.bid || '', box: d.box ? JSON.parse(d.box) : null }; });
   }
   // a new SlotData entry, written in the game's own property order
   function addSlot(t, e, before) {
@@ -1351,8 +1407,15 @@
           if (isNaN(ae.amount)) ae.amount = +cp.props.amount || 0;
           ae.att = cp.att;
         }
+        if (!ae.from && ae.box) {   // an item from the Rescue box: every property was saved with it
+          var bx = ae.box; cp = { props: {}, att: (bx.nested || []).slice(), box: true };
+          ['condition', 'amount', 'position', 'mode', 'zoom', 'chamber', 'casing', 'state'].forEach(function (k) { var v = bx[{ condition: 'cond', amount: 'amt' }[k] || k]; if (v !== undefined && v !== null) cp.props[k] = v; });
+          if (isNaN(ae.cond)) ae.cond = +cp.props.condition || 0;
+          if (isNaN(ae.amount)) ae.amount = +cp.props.amount || 0;
+          ae.att = cp.att;
+        }
         var nid = addSlot(t, ae, cb);
-        if (cp) ['position', 'mode', 'zoom', 'chamber', 'casing', 'state'].forEach(function (k) { if (cp.props[k] !== undefined) t.set(t.subById(nid), k, cp.props[k]); });
+        if (cp) (cp.box ? ['condition', 'amount', 'position', 'mode', 'zoom', 'chamber', 'casing', 'state'] : ['position', 'mode', 'zoom', 'chamber', 'casing', 'state']).forEach(function (k) { if (cp.props[k] !== undefined) t.set(t.subById(nid), k, cp.props[k]); });
         (ae.att || []).forEach(function (ap) { t.appendRef(t.subById(nid), 'nested', 'ExtResource("' + t.extFor(ap, 'Resource') + '")'); });
         if (t.get(cb, key) === undefined) t.insert(cb, 'storage', 'Array[ExtResource("' + t.extFor('res://Scripts/SlotData.gd', 'Script') + '")]([SubResource("' + nid + '")])');
         else t.appendRef(cb, key, 'SubResource("' + nid + '")');
@@ -1825,6 +1888,8 @@
     if (row.dataset.away) {
       var nrw = document.querySelector('tr.ea[data-aid="' + row.dataset.away + '"]'); ro('Moved to', nrw ? nrw.dataset.cname : 'another container');
       if (nrw) { var ux = document.createElement('button'); ux.textContent = 'Undo this move'; ux.addEventListener('click', function () { xUndoRow(nrw); }); box.appendChild(ux); }
+    } else if (row.dataset.bid) {
+      ro('Taken from', 'the Rescue box');
     } else if (row.dataset.fromSid) {
       ro('Moved here from', row.dataset.fromName || 'another container');
       var uy = document.createElement('button'); uy.textContent = 'Undo this move'; uy.addEventListener('click', function () { xUndoRow(row); }); box.appendChild(uy);
@@ -1867,7 +1932,7 @@
   }
   function showPage(name) { pageEl(name); document.querySelectorAll('#view > section.pg').forEach(function (e) { e.hidden = e.id !== 'pg-' + name; }); }
   function dropPages() { MOVES.length = 0; HELD = null; TCACHE = {}; document.querySelectorAll('#view > section.pg').forEach(function (e) { e.remove(); }); }
-  function resetAllPages() { IS.edit = false; SS.edit = false; TS.edit = false; dropPages(); }
+  function resetAllPages() { BOXMEM = null; IS.edit = false; SS.edit = false; TS.edit = false; dropPages(); }
   // one working source (the live save or a snapshot) for all editors, so their changes can go into one edited copy
   function setSource(v) { IS.src = SS.src = TS.src = ES.src = v; resetAllPages(); return render(); }
   function srcDir() { return IS.src === 'live' ? saveDir : j(j(bakDir, IS.src), 'data'); }
@@ -2010,7 +2075,7 @@
       else if (act === 'rbox-clear') {
         var rb = await rescueLoad();
         if (!rb.length || !(await ask('Empty the Rescue box?', rb.length + ' item' + (rb.length === 1 ? '' : 's') + ' will be forgotten. They still exist in the save or snapshot the cleaned copy was made from, but not in the cleaned copy. This cannot be undone.', { ok: 'Empty the box' }))) return;
-        await rescueSave([]); toast('The Rescue box is empty');
+        await rescueSave([]); BOXMEM = null; toast('The Rescue box is empty');
       }
       else if (act === 'inv-edit' || act === 'sh-edit') {
         var S1 = act === 'sh-edit' ? SS : IS;

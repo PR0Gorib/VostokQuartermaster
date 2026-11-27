@@ -291,13 +291,13 @@
   // Items whose data is missing, e.g. a loose item with no slot data, or a list that points at a block that is not in the file.
   // (An older Quartermaster could leave the first kind behind when it removed one of several loose items that shared their data.)
   function brokenIn(t, file) {
-    var out = [], m = t.main(), where = file.replace(/\.tres$/i, ''), have = {};
+    var out = [], m = t.main(), where = file.replace(/\.tres$/i, ''), have = {}, gone = {};
     ids(t.get(m, 'items') || '', 'SubResource').forEach(function (id) {
       var b = t.subById(id), sd = b && ids(t.get(b, 'slotData') || '', 'SubResource')[0];
+      if (sd && !t.subById(sd)) gone[sd] = 1;   // reported once, as the loose item, not again as a missing list entry
       if (b && (!sd || !t.subById(sd))) out.push({ file: file, kind: 'loose', label: 'Loose item "' + String(t.get(b, 'name') || 'unnamed').replace(/"/g, '') + '" in ' + where + ' has no item data' });
     });
     t.blocks.forEach(function (b) { if (b.kind === 'sub_resource') have[b.attrs.id] = 1; });
-    var gone = {};
     t.blocks.forEach(function (b) {
       if (b.kind !== 'sub_resource' && b.kind !== 'resource') return;
       t.blockRefs(b, 'SubResource').forEach(function (r) { if (!have[r] && !gone[r]) { gone[r] = 1; out.push({ file: file, kind: 'dangling', label: 'A list in ' + file + ' points at data that is not in the file (' + r + ')' }); } });

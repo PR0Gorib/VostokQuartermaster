@@ -1,0 +1,35 @@
+const T = require('./lib/t')('snapshots: backup, auto-backup limit, restore'), { boot } = require('./lib/boot'), fx = require('./lib/fixtures');
+const B = boot(), { api, F, D, RO, SAVE, BAK } = B;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+(async () => {
+  T.section('Folder names');
+  T.eq(api.cleanName('My save'), 'My save', 'a plain name is kept'); T.eq(api.cleanName('a<b>:c|d?'), 'a - b - c - d', 'characters Windows forbids become separators');
+  T.eq(api.cleanName('  ..name..  '), 'name', 'leading and trailing dots, dashes and spaces are removed'); T.eq(api.cleanName('CON'), '_CON', 'reserved Windows names are prefixed'); T.eq(api.cleanName('com1'), '_com1', 'including numbered ports');
+  T.ok(api.cleanName('x'.repeat(80)).length <= 50, 'long names are cut to 50 characters'); T.eq(api.cleanName(''), '', 'empty stays empty'); T.eq(api.cleanName(null), '', 'null is treated as empty');
+  B.mk(BAK + '/Before the raid'); T.eq(await api.uniqueName('Before the raid'), 'Before the raid (2)', 'a taken name gets a number'); B.mk(BAK + '/Before the raid (2)'); T.eq(await api.uniqueName('before THE raid'), 'before THE raid (3)', 'the check ignores letter case, like Windows');
+  for (const k of Object.keys(D)) if (k.indexOf(BAK + '/') === 0) delete D[k];
+  T.section('Taking a snapshot');
+  F[SAVE + '/Character.tres'] = fx.character(); F[SAVE + '/World.tres'] = fx.world(); F[SAVE + '/Attic.tres'] = fx.attic(); F[SAVE + '/logs/game.log'] = 'log'; F[SAVE + '/shader_cache/a.bin'] = 'cache'; B.mk(SAVE + '/logs'); B.mk(SAVE + '/shader_cache');
+  const m1 = await api.snap('Before the raid', false);
+  T.eq([m1.tag, m1.auto, m1.files], ['Before the raid', false, 3], 'metadata: tag, manual, and the number of files kept'); T.ok(!!F[BAK + '/' + m1.id + '/data/Attic.tres'] && F[BAK + '/' + m1.id + '/data/Attic.tres'] === fx.attic(), 'files are copied exactly');
+  T.ok(!(BAK + '/' + m1.id + '/data/logs/game.log' in F) && !(BAK + '/' + m1.id + '/data/shader_cache/a.bin' in F), 'logs and shader caches are skipped'); T.ok(m1.size > 0 && !!m1.created, 'size and time are recorded');
+  const m1b = await api.snap('Before the raid', false); T.eq(m1b.id, 'Before the raid (2)', 'a second snapshot with the same tag gets its own folder');
+  const L = await api.list(); T.eq(L.length, 2, 'list() finds both'); T.ok(L[0].created >= L[1].created, 'newest first');
+  F[BAK + '/not-a-snapshot/readme.txt'] = 'x'; B.mk(BAK + '/not-a-snapshot'); T.eq((await api.list()).length, 2, 'a folder without snapshot.json is ignored');
+  T.section('Automatic backups keep only the newest N (never manual ones or "Before restore")');
+  api.setKeep(3); await api.snap('Before restore', true);
+  for (let i = 0; i < 6; i++) { await sleep(4); await api.snap('', true); }
+  const all = await api.list(), autos = all.filter(m => m.auto && m.tag !== 'Before restore');
+  T.eq(autos.length, 3, 'only 3 automatic backups remain'); T.eq(all.filter(m => !m.auto).length, 2, 'both manual snapshots are untouched'); T.eq(all.filter(m => m.tag === 'Before restore').length, 1, 'the "Before restore" safety copy is kept');
+  const newest = all.filter(m => m.auto && m.tag !== 'Before restore').map(m => m.created).sort(); T.ok(newest.length === 3, 'the survivors are the newest ones');
+  T.section('Restoring');
+  F[SAVE + '/Attic.tres'] = 'CHANGED'; F[SAVE + '/Extra.tres'] = 'only in the live save'; F[SAVE + '/logs/game.log'] = 'newer log';
+  const before = (await api.list()).length; await api.restore(m1.id);
+  T.eq(F[SAVE + '/Attic.tres'], fx.attic(), 'changed files are put back'); T.ok(!(SAVE + '/Extra.tres' in F), 'files that were not in the snapshot are removed'); T.eq(F[SAVE + '/logs/game.log'], 'newer log', 'skipped folders (logs) are left alone');
+  const after = await api.list(); T.ok(after.length >= before && after.some(m => m.tag === 'Before restore' && m.auto), 'a "Before restore" copy of the current save is made first');
+  const br = after.filter(m => m.tag === 'Before restore').sort((a, b) => b.created.localeCompare(a.created))[0]; T.ok(F[BAK + '/' + br.id + '/data/Extra.tres'] === 'only in the live save', 'and it holds what the save looked like before');
+  T.section('Read-only files stop a restore before anything changes');
+  F[SAVE + '/Attic.tres'] = 'CHANGED AGAIN'; RO[SAVE + '/Attic.tres'] = true; const err = await T.throws(() => api.restore(m1.id), /readonly/, 'restoring over a read-only file is refused');
+  T.ok(err && Array.isArray(err.ro) && err.ro.length === 1, 'the error lists the read-only file'); T.eq(F[SAVE + '/Attic.tres'], 'CHANGED AGAIN', 'and the save was not touched'); delete RO[SAVE + '/Attic.tres'];
+  T.done();
+})().catch(e => { console.log('ERROR', e); process.exit(1); });
